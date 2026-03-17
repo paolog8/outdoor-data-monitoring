@@ -87,7 +87,7 @@ def ensure_registry(conn) -> uuid.UUID:
             """
             INSERT INTO mpp_tracking_slot (slot_code, mpp_tracker_id)
             VALUES %s
-            ON CONFLICT ON CONSTRAINT uq_mpp_tracking_slot_tracker_code DO NOTHING
+            ON CONFLICT (mpp_tracker_id, slot_code) DO NOTHING
             """,
             slot_rows,
         )
