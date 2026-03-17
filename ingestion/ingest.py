@@ -198,6 +198,7 @@ def ingest_file(cur, slot_id, rows: list, batch_size: int, dry_run: bool) -> int
             ON CONFLICT (mpp_tracking_slot_id, time) DO NOTHING
             """,
             batch_data,
+            page_size=len(batch_data),
         )
         inserted += cur.rowcount
     return inserted
