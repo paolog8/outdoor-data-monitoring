@@ -50,6 +50,29 @@ services:
       postgres:
         condition: service_healthy
 
+  ingestion:
+    build:
+      context: ./ingestion
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      PGHOST: postgres
+      PGPORT: "5432"
+      PGDATABASE: ${POSTGRES_DB}
+      PGUSER: ${POSTGRES_USER}
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      DATA_ROOT: /data
+      BATCH_SIZE: "1000"
+      DRY_RUN: "false"
+    volumes:
+      - ./data:/data:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      flyway:
+        condition: service_completed_successfully
+
 volumes:
   postgres_data:
   symmetricds_data:
