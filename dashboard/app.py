@@ -102,6 +102,17 @@ def insert_events(rows):
         conn.commit()
 
 
+def parse_board_channel(slot_code: str):
+    """Parse 'PC01_board03_channel12' → (3, 12). Returns None if pattern doesn't match."""
+    try:
+        parts = slot_code.split("_")
+        board = int(next(p for p in parts if p.startswith("board")).replace("board", ""))
+        channel = int(next(p for p in parts if p.startswith("channel")).replace("channel", ""))
+        return board, channel
+    except (StopIteration, ValueError):
+        return None
+
+
 def to_timestamptz(d: date, event_type: str) -> datetime:
     if event_type == "connection":
         return datetime(d.year, d.month, d.day, 0, 0, 0, tzinfo=timezone.utc)
@@ -157,8 +168,12 @@ with st.sidebar:
 
     mode_id = None
     tracker_id = None
-    slot_options = []   # [(slot_id, slot_code), ...]
-    slot_codes = []     # just the codes for display
+    slot_options = []       # [(slot_id, slot_code), ...]
+    slot_codes = []         # just the codes for display
+    use_board_channel = False
+    boards: list[int] = []
+    channels: list[int] = []
+    slot_by_board_channel: dict[tuple[int, int], int] = {}
 
     if is_connection:
         modes = load_modes()
@@ -173,6 +188,16 @@ with st.sidebar:
 
         slot_options = load_slots(tracker_id)
         slot_codes = [s[1] for s in slot_options]
+
+        # Extract board/channel lists if all slots follow the board_channel pattern
+        parsed = [parse_board_channel(c) for c in slot_codes]
+        use_board_channel = all(p is not None for p in parsed)
+        boards = sorted({p[0] for p in parsed if p}) if use_board_channel else []
+        channels = sorted({p[1] for p in parsed if p}) if use_board_channel else []
+        slot_by_board_channel = (
+            {(p[0], p[1]): s[0] for s, p in zip(slot_options, parsed) if p is not None}
+            if use_board_channel else {}
+        )
 
 # ---- Main area: batch builder ----------------------------------------------
 col_batch, col_manual = st.columns([2, 1])
@@ -211,52 +236,85 @@ st.subheader(f"Batch — {len(st.session_state.batch)} row(s)")
 if not st.session_state.batch:
     st.info("No cells added yet. Use the controls above to build the batch.")
 else:
-    header_cols = st.columns([3, 3, 1])
-    header_cols[0].markdown("**Cell name**")
-    header_cols[1].markdown("**Slot**" if is_connection else "**Current slot (auto)**")
-    header_cols[2].markdown("")
+    if is_connection and use_board_channel:
+        header_cols = st.columns([3, 1, 2, 1])
+        header_cols[0].markdown("**Cell name**")
+        header_cols[1].markdown("**Board**")
+        header_cols[2].markdown("**Channel**")
+        header_cols[3].markdown("")
+    else:
+        header_cols = st.columns([3, 3, 1])
+        header_cols[0].markdown("**Cell name**")
+        header_cols[1].markdown("**Slot**" if is_connection else "**Current slot (auto)**")
+        header_cols[2].markdown("")
 
     rows_to_remove = []
     for i, row in enumerate(st.session_state.batch):
-        c1, c2, c3 = st.columns([3, 3, 1])
-
-        with c1:
-            new_name = st.text_input(
-                "cell", value=row["cell_name"], key=f"name_{i}", label_visibility="collapsed"
-            )
-            st.session_state.batch[i]["cell_name"] = new_name
-
-        with c2:
-            if is_connection:
-                if slot_codes:
-                    current_code = row["slot_code"] if row["slot_code"] in slot_codes else slot_codes[0]
-                    sel_code = st.selectbox(
-                        "slot", slot_codes, index=slot_codes.index(current_code),
-                        key=f"slot_{i}", label_visibility="collapsed"
-                    )
-                    slot_id = next(s[0] for s in slot_options if s[1] == sel_code)
-                    st.session_state.batch[i]["slot_id"] = slot_id
-                    st.session_state.batch[i]["slot_code"] = sel_code
-                else:
-                    st.warning("No slots for this tracker")
-            else:
-                # Auto-resolve from DB
-                cell_id_lookup = next((c[0] for c in cells_db if c[1] == row["cell_name"]), None)
-                if cell_id_lookup:
-                    slot_info = current_slot_id(cell_id_lookup)
-                    if slot_info:
-                        st.session_state.batch[i]["slot_id"] = slot_info[0]
-                        st.text(slot_info[1])
+        if is_connection and use_board_channel:
+            c1, c_board, c_channel, c3 = st.columns([3, 1, 2, 1])
+            with c1:
+                new_name = st.text_input(
+                    "cell", value=row["cell_name"], key=f"name_{i}", label_visibility="collapsed"
+                )
+                st.session_state.batch[i]["cell_name"] = new_name
+            cur_bc = parse_board_channel(row.get("slot_code", "")) or (boards[0], channels[0])
+            with c_board:
+                sel_board = st.selectbox(
+                    "board", boards,
+                    index=boards.index(cur_bc[0]) if cur_bc[0] in boards else 0,
+                    key=f"board_{i}", label_visibility="collapsed",
+                )
+            with c_channel:
+                sel_channel = st.selectbox(
+                    "channel", channels,
+                    index=channels.index(cur_bc[1]) if cur_bc[1] in channels else 0,
+                    key=f"channel_{i}", label_visibility="collapsed",
+                )
+            resolved_slot_id = slot_by_board_channel.get((sel_board, sel_channel))
+            if resolved_slot_id is None:
+                c_channel.warning("Slot not found")
+            st.session_state.batch[i]["slot_id"] = resolved_slot_id
+            st.session_state.batch[i]["slot_code"] = f"board{sel_board:02d}_channel{sel_channel:02d}"
+            with c3:
+                if st.button("✕", key=f"del_{i}"):
+                    rows_to_remove.append(i)
+        else:
+            c1, c2, c3 = st.columns([3, 3, 1])
+            with c1:
+                new_name = st.text_input(
+                    "cell", value=row["cell_name"], key=f"name_{i}", label_visibility="collapsed"
+                )
+                st.session_state.batch[i]["cell_name"] = new_name
+            with c2:
+                if is_connection:
+                    if slot_codes:
+                        current_code = row["slot_code"] if row["slot_code"] in slot_codes else slot_codes[0]
+                        sel_code = st.selectbox(
+                            "slot", slot_codes, index=slot_codes.index(current_code),
+                            key=f"slot_{i}", label_visibility="collapsed"
+                        )
+                        slot_id = next(s[0] for s in slot_options if s[1] == sel_code)
+                        st.session_state.batch[i]["slot_id"] = slot_id
+                        st.session_state.batch[i]["slot_code"] = sel_code
                     else:
-                        st.warning("Not currently connected")
-                        st.session_state.batch[i]["slot_id"] = None
+                        st.warning("No slots for this tracker")
                 else:
-                    st.caption("(new cell — no current slot)")
-                    st.session_state.batch[i]["slot_id"] = None
-
-        with c3:
-            if st.button("✕", key=f"del_{i}"):
-                rows_to_remove.append(i)
+                    # Auto-resolve from DB
+                    cell_id_lookup = next((c[0] for c in cells_db if c[1] == row["cell_name"]), None)
+                    if cell_id_lookup:
+                        slot_info = current_slot_id(cell_id_lookup)
+                        if slot_info:
+                            st.session_state.batch[i]["slot_id"] = slot_info[0]
+                            st.text(slot_info[1])
+                        else:
+                            st.warning("Not currently connected")
+                            st.session_state.batch[i]["slot_id"] = None
+                    else:
+                        st.caption("(new cell — no current slot)")
+                        st.session_state.batch[i]["slot_id"] = None
+            with c3:
+                if st.button("✕", key=f"del_{i}"):
+                    rows_to_remove.append(i)
 
     for idx in reversed(rows_to_remove):
         remove_row(idx)
