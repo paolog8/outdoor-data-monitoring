@@ -395,8 +395,8 @@ def ingest_mpp_folder(conn, slot_map: dict, folder_path: Path, batch_size: int, 
                 conn.commit()
                 total_inserted += n
                 logger.info(
-                    "Committed %d new rows from %s (parsed %d)",
-                    n, file_path.name, len(rows),
+                    "Committed %d new MPP rows from %s/%s (parsed %d)",
+                    n, folder_path.parent.name, file_path.name, len(rows),
                 )
             except Exception:
                 conn.rollback()
@@ -431,8 +431,8 @@ def ingest_temperature_folder(conn, folder_path: Path, batch_size: int, dry_run:
             conn.commit()
             total_inserted += n
             logger.info(
-                "Committed %d new temperature rows from %s (parsed %d)",
-                n, file_path.name, len(rows),
+                "Committed %d new temperature rows from %s/%s (parsed %d)",
+                n, folder_path.parent.name, file_path.name, len(rows),
             )
         except Exception:
             conn.rollback()
@@ -467,8 +467,8 @@ def ingest_irradiance_folder(conn, folder_path: Path, batch_size: int, dry_run: 
             conn.commit()
             total_inserted += n
             logger.info(
-                "Committed %d new irradiance rows from %s (parsed %d)",
-                n, file_path.name, len(rows),
+                "Committed %d new irradiance rows from %s/%s (parsed %d)",
+                n, folder_path.parent.name, file_path.name, len(rows),
             )
         except Exception:
             conn.rollback()
