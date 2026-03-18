@@ -157,9 +157,9 @@ def parse_file(file_path: Path) -> list:
                 ts      = datetime.datetime.fromisoformat(row[0])
                 ts      = ts.replace(tzinfo=datetime.timezone.utc)
                 power   = float(row[1])
-                voltage = float(row[2])
-                current = float(row[3])
-                rows.append((ts, power, voltage, current))
+                current = float(row[2])
+                voltage = float(row[3])
+                rows.append((ts, power, current, voltage))
             except (ValueError, OverflowError) as exc:
                 logger.warning(
                     "Skipping invalid row %d in %s: %s", lineno, file_path, exc
@@ -179,10 +179,10 @@ def ingest_file(cur, slot_id, rows: list, batch_size: int, dry_run: bool) -> int
     inserted = 0
     for i in range(0, len(rows), batch_size):
         batch = rows[i : i + batch_size]
-        # File column order: power, voltage, current → map to DB column order
+        # File column order: power, current, voltage → map to DB column order
         batch_data = [
             (ts, slot_id, voltage, current, power)
-            for ts, power, voltage, current in batch
+            for ts, power, current, voltage in batch
         ]
         if dry_run:
             logger.info(
