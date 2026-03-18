@@ -1,12 +1,14 @@
 -- Irradiance Sensor registry and time-series measurements.
 -- Each sensor produces a single stream of readings; measurements FK directly to sensor.
+-- sensor_id links to the sensor parent table (supertype), established in V5.
 -- raw_value stores the unconverted integer output from the sensor hardware.
 -- irradiance stores the converted value in W/m².
 
 CREATE TABLE irradiance_sensor (
     id              BIGSERIAL   PRIMARY KEY,
-    name            TEXT    NOT NULL,
-    model           TEXT    NOT NULL,
+    sensor_id       BIGINT      NOT NULL UNIQUE REFERENCES sensor(id),
+    name            TEXT        NOT NULL,
+    model           TEXT        NOT NULL,
     serial_number   TEXT,
     location        TEXT
 );

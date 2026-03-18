@@ -104,3 +104,40 @@ LIMIT 1;
 
 Both queries use the `(solar_cell_id, occurred_at DESC)` and `(mpp_tracking_slot_id, occurred_at DESC)`
 indexes on `mpp_connection_event` respectively.
+
+## Sensor association tracking
+
+`sensor_association_event` is a manually managed append-only event log — not populated by the
+ingestion pipeline. It links any sensor type to a solar cell via the `sensor` parent table.
+
+Current association state is derived by finding the latest event, same pattern as
+`mpp_connection_event`.
+
+### Derive current sensor association
+
+**Which temperature sensor is currently monitoring cell X?**
+
+```sql
+SELECT ts.name, ts.serial_number, e.specification, e.occurred_at
+FROM sensor_association_event e
+JOIN temperature_sensor ts ON ts.sensor_id = e.sensor_id
+WHERE e.solar_cell_id = $cell_id
+ORDER BY e.occurred_at DESC
+LIMIT 1;
+-- Check event_type = 'association' to confirm currently active.
+```
+
+Replace the JOIN with `irradiance_sensor` for irradiance sensor queries.
+
+**All sensors (any type) currently associated with cell X:**
+
+```sql
+SELECT s.sensor_type, e.sensor_id, e.occurred_at
+FROM sensor_association_event e
+JOIN sensor s ON s.id = e.sensor_id
+WHERE e.solar_cell_id = $cell_id
+  AND e.event_type = 'association'
+ORDER BY e.occurred_at DESC;
+```
+
+This cross-type query works without UNION because all sensor types share the `sensor` parent table.
