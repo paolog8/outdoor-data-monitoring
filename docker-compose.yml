@@ -64,7 +64,7 @@ services:
       PGPASSWORD: ${POSTGRES_PASSWORD}
       DATA_ROOT: /data
       BATCH_SIZE: "1000"
-      DRY_RUN: "false"
+      DRY_RUN: "${DRY_RUN:-false}"
     volumes:
       - ./data:/data:ro
     depends_on:
