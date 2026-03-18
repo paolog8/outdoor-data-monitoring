@@ -4,7 +4,7 @@
 -- irradiance stores the converted value in W/m².
 
 CREATE TABLE irradiance_sensor (
-    id              UUID    PRIMARY KEY DEFAULT gen_random_uuid(),
+    id              BIGSERIAL   PRIMARY KEY,
     name            TEXT    NOT NULL,
     model           TEXT    NOT NULL,
     serial_number   TEXT,
@@ -13,7 +13,7 @@ CREATE TABLE irradiance_sensor (
 
 CREATE TABLE irradiance_measurement (
     time                    TIMESTAMPTZ         NOT NULL,
-    irradiance_sensor_id    UUID                NOT NULL REFERENCES irradiance_sensor(id),
+    irradiance_sensor_id    BIGINT              NOT NULL REFERENCES irradiance_sensor(id),
     irradiance              DOUBLE PRECISION    NOT NULL,  -- W/m² (converted)
     raw_value               INTEGER             NOT NULL   -- raw sensor output
 );

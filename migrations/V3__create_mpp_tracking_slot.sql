@@ -4,10 +4,10 @@
 -- e.g. a board/channel pair like 'B1-CH3', or just a channel like 'CH2').
 
 CREATE TABLE mpp_tracking_slot (
-    id              UUID    PRIMARY KEY DEFAULT gen_random_uuid(),
-    slot_code       TEXT    NOT NULL,
+    id              BIGSERIAL   PRIMARY KEY,
+    slot_code       TEXT        NOT NULL,
     comments        TEXT,
-    mpp_tracker_id  UUID    NOT NULL REFERENCES mpp_tracker(id)
+    mpp_tracker_id  BIGINT      NOT NULL REFERENCES mpp_tracker(id)
 );
 
 -- Enforce unique slot codes within a tracker

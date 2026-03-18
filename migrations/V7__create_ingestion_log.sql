@@ -4,7 +4,7 @@ ALTER TABLE mpp_tracker
 
 -- One row per folder attempt. Multiple 'started'/'failed' rows allowed; only one 'completed'.
 CREATE TABLE ingestion_log (
-    id            UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
+    id            BIGSERIAL    PRIMARY KEY,
     folder_name   TEXT         NOT NULL,
     status        TEXT         NOT NULL CHECK (status IN ('started', 'completed', 'failed')),
     started_at    TIMESTAMPTZ  NOT NULL DEFAULT now(),

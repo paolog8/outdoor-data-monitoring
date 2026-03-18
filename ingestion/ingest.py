@@ -12,7 +12,6 @@ import logging
 import os
 import re
 import sys
-import uuid
 from pathlib import Path
 
 import psycopg2
@@ -58,8 +57,8 @@ def get_connection():
 # Registry bootstrap
 # ---------------------------------------------------------------------------
 
-def ensure_registry(conn) -> uuid.UUID:
-    """Idempotently create the PeroCube tracker and all 240 slots. Returns tracker UUID."""
+def ensure_registry(conn) -> int:
+    """Idempotently create the PeroCube tracker and all 240 slots. Returns tracker id."""
     with conn.cursor() as cur:
         # Upsert tracker
         cur.execute(
@@ -104,7 +103,7 @@ def ensure_registry(conn) -> uuid.UUID:
 # ---------------------------------------------------------------------------
 
 def build_slot_map(conn, tracker_id) -> dict:
-    """Returns {slot_code: uuid} for every slot belonging to this tracker."""
+    """Returns {slot_code: int} for every slot belonging to this tracker."""
     with conn.cursor() as cur:
         cur.execute(
             "SELECT slot_code, id FROM mpp_tracking_slot WHERE mpp_tracker_id = %s",

@@ -4,7 +4,7 @@
 -- slot_code values used in mpp_tracking_slot for this tracker model.
 
 CREATE TABLE mpp_tracker (
-    id                  UUID    PRIMARY KEY DEFAULT gen_random_uuid(),
+    id                  BIGSERIAL   PRIMARY KEY,
     name                TEXT    NOT NULL,
     model               TEXT    NOT NULL,
     slot_code_pattern   TEXT
