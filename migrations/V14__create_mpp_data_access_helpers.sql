@@ -46,11 +46,11 @@ CREATE OR REPLACE FUNCTION mpp_measurements_for_cell(
     p_end        TIMESTAMPTZ DEFAULT NULL
 )
 RETURNS TABLE (
-    time       TIMESTAMPTZ,
-    mode_code  TEXT,
-    voltage    DOUBLE PRECISION,
-    current    DOUBLE PRECISION,
-    power      DOUBLE PRECISION
+    measured_at  TIMESTAMPTZ,
+    mode_code    TEXT,
+    voltage      DOUBLE PRECISION,
+    current_a    DOUBLE PRECISION,
+    power_mw     DOUBLE PRECISION
 )
 LANGUAGE sql
 STABLE
@@ -78,11 +78,11 @@ AS $$
         WHERE event_type = 'connection'
     )
     SELECT
-        m.time,
-        mcm.code  AS mode_code,
+        m.time        AS measured_at,
+        mcm.code      AS mode_code,
         m.voltage,
-        m.current,
-        m.power
+        m.current     AS current_a,
+        m.power       AS power_mw
     FROM connection_intervals ci
     JOIN mpp_measurement m
         ON  m.mpp_tracking_slot_id = ci.mpp_tracking_slot_id
