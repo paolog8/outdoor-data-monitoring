@@ -64,3 +64,43 @@ INSERT INTO irradiance_measurement (time, irradiance_sensor_id, irradiance, raw_
 VALUES %s
 ON CONFLICT (irradiance_sensor_id, time) DO NOTHING;
 ```
+
+## Solar cell and connection tracking
+
+`solar_cell` and `mpp_connection_mode` are manually managed reference tables — they are not
+populated by the ingestion pipeline.
+
+`mpp_connection_event` is an append-only event log. Current connection state is always derived
+by finding the latest event for a given cell or slot — there is no separate "current state" table.
+
+### Derive current connection state
+
+**What cell is currently in slot X?**
+
+```sql
+SELECT e.solar_cell_id, c.name, e.mode_id, m.code AS mode, e.specification, e.occurred_at
+FROM mpp_connection_event e
+JOIN solar_cell c ON c.id = e.solar_cell_id
+LEFT JOIN mpp_connection_mode m ON m.id = e.mode_id
+WHERE e.mpp_tracking_slot_id = $slot_id
+ORDER BY e.occurred_at DESC
+LIMIT 1;
+-- Returns NULL (no rows) if no events exist, or check that event_type = 'connection'
+-- to confirm the slot currently has a cell (not just disconnected).
+```
+
+**What slot is cell X currently connected to?**
+
+```sql
+SELECT e.mpp_tracking_slot_id, s.slot_code, e.mode_id, m.code AS mode, e.occurred_at
+FROM mpp_connection_event e
+JOIN mpp_tracking_slot s ON s.id = e.mpp_tracking_slot_id
+LEFT JOIN mpp_connection_mode m ON m.id = e.mode_id
+WHERE e.solar_cell_id = $cell_id
+ORDER BY e.occurred_at DESC
+LIMIT 1;
+-- Check event_type = 'connection' to confirm cell is currently connected.
+```
+
+Both queries use the `(solar_cell_id, occurred_at DESC)` and `(mpp_tracking_slot_id, occurred_at DESC)`
+indexes on `mpp_connection_event` respectively.
