@@ -141,15 +141,26 @@ st.title("MPP Connection Event Entry")
 with st.sidebar:
     st.header("Event details")
 
-    event_type = st.selectbox("Event type", ["connection", "disconnection"])
-    event_date = st.date_input("Date", value=date.today())
+    event_type = st.selectbox(
+        "Event type",
+        ["connection", "disconnection", "pair (connection + disconnection)"],
+    )
+    is_pair = event_type == "pair (connection + disconnection)"
+    is_connection = event_type == "connection" or is_pair
+
+    if is_pair:
+        connection_date = st.date_input("Connection date", value=date.today())
+        disconnection_date = st.date_input("Disconnection date", value=date.today())
+    else:
+        connection_date = st.date_input("Date", value=date.today())
+        disconnection_date = None
 
     mode_id = None
     tracker_id = None
     slot_options = []   # [(slot_id, slot_code), ...]
     slot_codes = []     # just the codes for display
 
-    if event_type == "connection":
+    if is_connection:
         modes = load_modes()
         mode_names = [m[1] for m in modes]
         mode_sel = st.selectbox("Mode", mode_names)
@@ -202,7 +213,7 @@ if not st.session_state.batch:
 else:
     header_cols = st.columns([3, 3, 1])
     header_cols[0].markdown("**Cell name**")
-    header_cols[1].markdown("**Slot**" if event_type == "connection" else "**Current slot (auto)**")
+    header_cols[1].markdown("**Slot**" if is_connection else "**Current slot (auto)**")
     header_cols[2].markdown("")
 
     rows_to_remove = []
@@ -216,7 +227,7 @@ else:
             st.session_state.batch[i]["cell_name"] = new_name
 
         with c2:
-            if event_type == "connection":
+            if is_connection:
                 if slot_codes:
                     current_code = row["slot_code"] if row["slot_code"] in slot_codes else slot_codes[0]
                     sel_code = st.selectbox(
@@ -263,11 +274,14 @@ if st.button("Submit events", type="primary", disabled=not st.session_state.batc
         if not name:
             errors.append("One or more rows have an empty cell name.")
             continue
-        if event_type == "connection" and row["slot_id"] is None:
+        if is_connection and row["slot_id"] is None:
             errors.append(f"'{name}': no slot assigned.")
             continue
         if event_type == "disconnection" and row["slot_id"] is None:
             errors.append(f"'{name}': not currently connected — cannot disconnect.")
+            continue
+        if is_pair and disconnection_date and disconnection_date < connection_date:
+            errors.append(f"'{name}': disconnection date is before connection date.")
             continue
         to_insert.append(row)
 
@@ -276,20 +290,39 @@ if st.button("Submit events", type="primary", disabled=not st.session_state.batc
             st.error(e)
     else:
         try:
-            occurred_at = to_timestamptz(event_date, event_type)
             db_rows = []
             for row in to_insert:
                 cell_id = ensure_cell(row["cell_name"])
-                db_rows.append({
-                    "cell_id": cell_id,
-                    "slot_id": row["slot_id"],
-                    "event_type": event_type,
-                    "mode_id": mode_id,
-                    "occurred_at": occurred_at,
-                })
+                if is_pair:
+                    assert disconnection_date is not None
+                    # Insert connection then disconnection
+                    db_rows.append({
+                        "cell_id": cell_id,
+                        "slot_id": row["slot_id"],
+                        "event_type": "connection",
+                        "mode_id": mode_id,
+                        "occurred_at": to_timestamptz(connection_date, "connection"),
+                    })
+                    db_rows.append({
+                        "cell_id": cell_id,
+                        "slot_id": row["slot_id"],
+                        "event_type": "disconnection",
+                        "mode_id": None,
+                        "occurred_at": to_timestamptz(disconnection_date, "disconnection"),
+                    })
+                else:
+                    db_rows.append({
+                        "cell_id": cell_id,
+                        "slot_id": row["slot_id"],
+                        "event_type": event_type,
+                        "mode_id": mode_id,
+                        "occurred_at": to_timestamptz(connection_date, event_type),
+                    })
             insert_events(db_rows)
             st.cache_data.clear()
-            st.success(f"Inserted {len(db_rows)} event(s).")
+            n_cells = len(to_insert)
+            n_events = len(db_rows)
+            st.success(f"Inserted {n_events} event(s) for {n_cells} cell(s).")
             st.session_state.batch = []
             st.rerun()
         except Exception as ex:
