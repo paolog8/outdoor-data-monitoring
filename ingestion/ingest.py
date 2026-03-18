@@ -363,7 +363,7 @@ def ingest_irradiance_measurements(cur, sensor_id: int, rows: list, batch_size: 
 # Folder ingestion
 # ---------------------------------------------------------------------------
 
-def ingest_folder(conn, slot_map: dict, folder_path: Path, batch_size: int, dry_run: bool) -> int:
+def ingest_mpp_folder(conn, slot_map: dict, folder_path: Path, batch_size: int, dry_run: bool) -> int:
     """
     Processes all board/channel files within a folder.
     One transaction per file: failed files roll back cleanly; committed files
@@ -506,7 +506,7 @@ def process_folder(conn, slot_map: dict, folder_name: str, data_root: Path, batc
         return
 
     try:
-        n  = ingest_folder(conn, slot_map, folder_path, batch_size, dry_run)
+        n  = ingest_mpp_folder(conn, slot_map, folder_path, batch_size, dry_run)
         n += ingest_temperature_folder(conn, folder_path, batch_size, dry_run)
         n += ingest_irradiance_folder(conn, folder_path, batch_size, dry_run)
         with conn.cursor() as cur:
