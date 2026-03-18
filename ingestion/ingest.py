@@ -27,7 +27,9 @@ SLOT_CODE_PATTERN = "PC01_board{:02d}_channel{:02d}"
 BOARDS            = range(1, 11)   # boards 1..10 (board 1 may or may not exist)
 CHANNELS          = range(1, 25)   # channels 1..24
 DEFAULT_BATCH_SIZE = 1000
-FOLDER_RE         = re.compile(r"^data_\d{8}$")
+FOLDER_RE          = re.compile(r"^data_\d{8}$")
+TEMP_FILE_RE       = re.compile(r"^m7004_ID_([0-9A-Fa-f]+)\.txt$")
+IRRADIANCE_FILE_RE = re.compile(r"^PT-104_channel_(\d+)\.txt$")
 
 logger = logging.getLogger(__name__)
 
@@ -113,6 +115,51 @@ def build_slot_map(conn, tracker_id) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Sensor registry helpers (temperature + irradiance)
+# ---------------------------------------------------------------------------
+
+def upsert_temperature_sensor(conn, serial_number: str) -> int:
+    """Idempotently register a temperature sensor by serial number. Returns sensor id."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO temperature_sensor (name, model, serial_number)
+            VALUES (%s, 'm7004', %s)
+            ON CONFLICT ON CONSTRAINT uq_temperature_sensor_serial_number DO NOTHING
+            """,
+            (f"m7004_{serial_number}", serial_number),
+        )
+        cur.execute(
+            "SELECT id FROM temperature_sensor WHERE serial_number = %s",
+            (serial_number,),
+        )
+        sensor_id = cur.fetchone()[0]
+    conn.commit()
+    return sensor_id
+
+
+def upsert_irradiance_sensor(conn, channel: str) -> int:
+    """Idempotently register an irradiance sensor by channel. Returns sensor id."""
+    serial = f"channel_{channel}"
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO irradiance_sensor (name, model, serial_number)
+            VALUES (%s, 'PT-104', %s)
+            ON CONFLICT ON CONSTRAINT uq_irradiance_sensor_serial_number DO NOTHING
+            """,
+            (f"PT-104_{serial}", serial),
+        )
+        cur.execute(
+            "SELECT id FROM irradiance_sensor WHERE serial_number = %s",
+            (serial,),
+        )
+        sensor_id = cur.fetchone()[0]
+    conn.commit()
+    return sensor_id
+
+
+# ---------------------------------------------------------------------------
 # Folder discovery
 # ---------------------------------------------------------------------------
 
@@ -167,6 +214,63 @@ def parse_file(file_path: Path) -> list:
     return rows
 
 
+def parse_temperature_file(file_path: Path) -> list:
+    """
+    Parses a TSV file with columns: timestamp, temperature[°C].
+    Returns list of (datetime, float) tuples.
+    Malformed rows are skipped with a WARNING log.
+    """
+    rows = []
+    with open(file_path, "r") as fh:
+        reader = csv.reader(fh, delimiter="\t")
+        for lineno, row in enumerate(reader, 1):
+            if len(row) != 2:
+                logger.warning(
+                    "Skipping malformed row %d in %s (expected 2 columns, got %d)",
+                    lineno, file_path, len(row),
+                )
+                continue
+            try:
+                ts          = datetime.datetime.fromisoformat(row[0])
+                ts          = ts.replace(tzinfo=datetime.timezone.utc)
+                temperature = float(row[1])
+                rows.append((ts, temperature))
+            except (ValueError, OverflowError) as exc:
+                logger.warning(
+                    "Skipping invalid row %d in %s: %s", lineno, file_path, exc
+                )
+    return rows
+
+
+def parse_irradiance_file(file_path: Path) -> list:
+    """
+    Parses a TSV file with columns: timestamp, raw_value[uV], irradiance[W/m²].
+    Returns list of (datetime, int, float) tuples.
+    Malformed rows are skipped with a WARNING log.
+    """
+    rows = []
+    with open(file_path, "r") as fh:
+        reader = csv.reader(fh, delimiter="\t")
+        for lineno, row in enumerate(reader, 1):
+            if len(row) != 3:
+                logger.warning(
+                    "Skipping malformed row %d in %s (expected 3 columns, got %d)",
+                    lineno, file_path, len(row),
+                )
+                continue
+            try:
+                ts         = datetime.datetime.fromisoformat(row[0])
+                ts         = ts.replace(tzinfo=datetime.timezone.utc)
+                raw_value  = int(row[1])
+                irradiance = float(row[2])
+                rows.append((ts, raw_value, irradiance))
+            except (ValueError, OverflowError) as exc:
+                logger.warning(
+                    "Skipping invalid row %d in %s: %s", lineno, file_path, exc
+                )
+    return rows
+
+
 # ---------------------------------------------------------------------------
 # File ingestion
 # ---------------------------------------------------------------------------
@@ -195,6 +299,58 @@ def ingest_file(cur, slot_id, rows: list, batch_size: int, dry_run: bool) -> int
             INSERT INTO mpp_measurement (time, mpp_tracking_slot_id, voltage, current, power)
             VALUES %s
             ON CONFLICT (mpp_tracking_slot_id, time) DO NOTHING
+            """,
+            batch_data,
+            page_size=len(batch_data),
+        )
+        inserted += cur.rowcount
+    return inserted
+
+
+def ingest_temperature_measurements(cur, sensor_id: int, rows: list, batch_size: int, dry_run: bool) -> int:
+    """Inserts temperature rows in batches. Returns count of rows actually written."""
+    inserted = 0
+    for i in range(0, len(rows), batch_size):
+        batch = rows[i : i + batch_size]
+        batch_data = [(ts, sensor_id, temperature) for ts, temperature in batch]
+        if dry_run:
+            logger.info(
+                "[DRY RUN] Would insert %d temperature rows for sensor %s",
+                len(batch_data), sensor_id,
+            )
+            continue
+        psycopg2.extras.execute_values(
+            cur,
+            """
+            INSERT INTO temperature_measurement (time, temperature_sensor_id, temperature)
+            VALUES %s
+            ON CONFLICT (temperature_sensor_id, time) DO NOTHING
+            """,
+            batch_data,
+            page_size=len(batch_data),
+        )
+        inserted += cur.rowcount
+    return inserted
+
+
+def ingest_irradiance_measurements(cur, sensor_id: int, rows: list, batch_size: int, dry_run: bool) -> int:
+    """Inserts irradiance rows in batches. Returns count of rows actually written."""
+    inserted = 0
+    for i in range(0, len(rows), batch_size):
+        batch = rows[i : i + batch_size]
+        batch_data = [(ts, sensor_id, irradiance, raw_value) for ts, raw_value, irradiance in batch]
+        if dry_run:
+            logger.info(
+                "[DRY RUN] Would insert %d irradiance rows for sensor %s",
+                len(batch_data), sensor_id,
+            )
+            continue
+        psycopg2.extras.execute_values(
+            cur,
+            """
+            INSERT INTO irradiance_measurement (time, irradiance_sensor_id, irradiance, raw_value)
+            VALUES %s
+            ON CONFLICT (irradiance_sensor_id, time) DO NOTHING
             """,
             batch_data,
             page_size=len(batch_data),
@@ -250,6 +406,78 @@ def ingest_folder(conn, slot_map: dict, folder_path: Path, batch_size: int, dry_
     return total_inserted
 
 
+def ingest_temperature_folder(conn, folder_path: Path, batch_size: int, dry_run: bool) -> int:
+    """
+    Processes all m7004 temperature files within a folder.
+    Upserts sensor registry entry per file, then inserts measurements.
+    One transaction per file.
+    """
+    total_inserted = 0
+    for file_path in sorted(folder_path.iterdir()):
+        m = TEMP_FILE_RE.match(file_path.name)
+        if not m:
+            continue
+        serial    = m.group(1)
+        sensor_id = upsert_temperature_sensor(conn, serial)
+
+        rows = parse_temperature_file(file_path)
+        if not rows:
+            logger.info("No valid rows in %s", file_path.name)
+            continue
+
+        try:
+            with conn.cursor() as cur:
+                n = ingest_temperature_measurements(cur, sensor_id, rows, batch_size, dry_run)
+            conn.commit()
+            total_inserted += n
+            logger.info(
+                "Committed %d new temperature rows from %s (parsed %d)",
+                n, file_path.name, len(rows),
+            )
+        except Exception:
+            conn.rollback()
+            logger.exception("Failed to ingest %s — rolled back", file_path.name)
+            raise
+
+    return total_inserted
+
+
+def ingest_irradiance_folder(conn, folder_path: Path, batch_size: int, dry_run: bool) -> int:
+    """
+    Processes all PT-104 irradiance files within a folder.
+    Upserts sensor registry entry per file, then inserts measurements.
+    One transaction per file.
+    """
+    total_inserted = 0
+    for file_path in sorted(folder_path.iterdir()):
+        m = IRRADIANCE_FILE_RE.match(file_path.name)
+        if not m:
+            continue
+        channel   = m.group(1)
+        sensor_id = upsert_irradiance_sensor(conn, channel)
+
+        rows = parse_irradiance_file(file_path)
+        if not rows:
+            logger.info("No valid rows in %s", file_path.name)
+            continue
+
+        try:
+            with conn.cursor() as cur:
+                n = ingest_irradiance_measurements(cur, sensor_id, rows, batch_size, dry_run)
+            conn.commit()
+            total_inserted += n
+            logger.info(
+                "Committed %d new irradiance rows from %s (parsed %d)",
+                n, file_path.name, len(rows),
+            )
+        except Exception:
+            conn.rollback()
+            logger.exception("Failed to ingest %s — rolled back", file_path.name)
+            raise
+
+    return total_inserted
+
+
 # ---------------------------------------------------------------------------
 # Folder lifecycle (ingestion_log)
 # ---------------------------------------------------------------------------
@@ -278,7 +506,9 @@ def process_folder(conn, slot_map: dict, folder_name: str, data_root: Path, batc
         return
 
     try:
-        n = ingest_folder(conn, slot_map, folder_path, batch_size, dry_run)
+        n  = ingest_folder(conn, slot_map, folder_path, batch_size, dry_run)
+        n += ingest_temperature_folder(conn, folder_path, batch_size, dry_run)
+        n += ingest_irradiance_folder(conn, folder_path, batch_size, dry_run)
         with conn.cursor() as cur:
             cur.execute(
                 """

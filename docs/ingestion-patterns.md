@@ -28,3 +28,39 @@ timestamp    power [mW]    current [mA]    voltage [V]
 ```
 
 Note: the DB insert order is `(voltage, current, power)` — reorder when mapping from file columns.
+
+## Temperature ingestion
+
+Temperature files (`m7004_ID_<hex>.txt`) are tab-separated with columns:
+
+```
+timestamp    temperature[°C]
+```
+
+Sensor identity comes from the hex serial number in the filename. Sensors are upserted into
+`temperature_sensor` using `serial_number` as the unique key
+(constraint `uq_temperature_sensor_serial_number`).
+
+```sql
+INSERT INTO temperature_measurement (time, temperature_sensor_id, temperature)
+VALUES %s
+ON CONFLICT (temperature_sensor_id, time) DO NOTHING;
+```
+
+## Irradiance ingestion
+
+Irradiance files (`PT-104_channel_??.txt`) are tab-separated with columns:
+
+```
+timestamp    raw_value[uV]    irradiance[W/m²]
+```
+
+Sensor identity comes from the channel number in the filename (stored as `serial_number =
+'channel_NN'`). Sensors are upserted into `irradiance_sensor` using `serial_number` as the
+unique key (constraint `uq_irradiance_sensor_serial_number`).
+
+```sql
+INSERT INTO irradiance_measurement (time, irradiance_sensor_id, irradiance, raw_value)
+VALUES %s
+ON CONFLICT (irradiance_sensor_id, time) DO NOTHING;
+```
