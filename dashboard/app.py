@@ -125,15 +125,24 @@ def to_timestamptz(d: date, event_type: str) -> datetime:
 # ---------------------------------------------------------------------------
 
 if "batch" not in st.session_state:
-    st.session_state.batch = []  # list of {"cell_name": str, "slot_id": int|None, "slot_code": str}
+    st.session_state.batch = []  # list of {"cell_name": str, "slot_id": int|None, "slot_code": str, "mode_id": int|None, "mode_code": str}
 
 
 def add_rows(names):
+    modes = load_modes()
+    default_mode_id = modes[0][0] if modes else None
+    default_mode_code = modes[0][1] if modes else ""
     existing = {r["cell_name"] for r in st.session_state.batch}
     for name in names:
         name = name.strip()
         if name and name not in existing:
-            st.session_state.batch.append({"cell_name": name, "slot_id": None, "slot_code": ""})
+            st.session_state.batch.append({
+                "cell_name": name,
+                "slot_id": None,
+                "slot_code": "",
+                "mode_id": default_mode_id,
+                "mode_code": default_mode_code,
+            })
             existing.add(name)
 
 
@@ -166,7 +175,6 @@ with st.sidebar:
         connection_date = st.date_input("Date", value=date.today())
         disconnection_date = None
 
-    mode_id = None
     tracker_id = None
     slot_options = []       # [(slot_id, slot_code), ...]
     slot_codes = []         # just the codes for display
@@ -176,11 +184,6 @@ with st.sidebar:
     slot_by_board_channel: dict[tuple[int, int], int] = {}
 
     if is_connection:
-        modes = load_modes()
-        mode_names = [m[1] for m in modes]
-        mode_sel = st.selectbox("Mode", mode_names)
-        mode_id = next(m[0] for m in modes if m[1] == mode_sel)
-
         trackers = load_trackers()
         tracker_names = [t[1] for t in trackers]
         tracker_sel = st.selectbox("Tracker", tracker_names)
@@ -233,25 +236,39 @@ with col_manual:
 st.divider()
 st.subheader(f"Batch — {len(st.session_state.batch)} row(s)")
 
+mode_names: list[str] = []
+mode_map: dict[str, int] = {}
+if is_connection:
+    modes = load_modes()
+    mode_names = [m[1] for m in modes]
+    mode_map = {m[1]: m[0] for m in modes}  # code → id
+
 if not st.session_state.batch:
     st.info("No cells added yet. Use the controls above to build the batch.")
 else:
     if is_connection and use_board_channel:
-        header_cols = st.columns([3, 1, 2, 1])
+        header_cols = st.columns([3, 1, 2, 2, 1])
         header_cols[0].markdown("**Cell name**")
         header_cols[1].markdown("**Board**")
         header_cols[2].markdown("**Channel**")
+        header_cols[3].markdown("**Mode**")
+        header_cols[4].markdown("")
+    elif is_connection:
+        header_cols = st.columns([3, 2, 2, 1])
+        header_cols[0].markdown("**Cell name**")
+        header_cols[1].markdown("**Slot**")
+        header_cols[2].markdown("**Mode**")
         header_cols[3].markdown("")
     else:
         header_cols = st.columns([3, 3, 1])
         header_cols[0].markdown("**Cell name**")
-        header_cols[1].markdown("**Slot**" if is_connection else "**Current slot (auto)**")
+        header_cols[1].markdown("**Current slot (auto)**")
         header_cols[2].markdown("")
 
     rows_to_remove = []
     for i, row in enumerate(st.session_state.batch):
         if is_connection and use_board_channel:
-            c1, c_board, c_channel, c3 = st.columns([3, 1, 2, 1])
+            c1, c_board, c_channel, c_mode, c3 = st.columns([3, 1, 2, 2, 1])
             with c1:
                 new_name = st.text_input(
                     "cell", value=row["cell_name"], key=f"name_{i}", label_visibility="collapsed"
@@ -275,18 +292,28 @@ else:
                 c_channel.warning("Slot not found")
             st.session_state.batch[i]["slot_id"] = resolved_slot_id
             st.session_state.batch[i]["slot_code"] = f"board{sel_board:02d}_channel{sel_channel:02d}"
+            with c_mode:
+                cur_mode = row.get("mode_code", mode_names[0] if mode_names else "")
+                if cur_mode not in mode_names and mode_names:
+                    cur_mode = mode_names[0]
+                sel_mode = st.selectbox(
+                    "mode", mode_names, index=mode_names.index(cur_mode),
+                    key=f"mode_{i}", label_visibility="collapsed",
+                )
+                st.session_state.batch[i]["mode_id"] = mode_map[sel_mode]
+                st.session_state.batch[i]["mode_code"] = sel_mode
             with c3:
                 if st.button("✕", key=f"del_{i}"):
                     rows_to_remove.append(i)
         else:
-            c1, c2, c3 = st.columns([3, 3, 1])
-            with c1:
-                new_name = st.text_input(
-                    "cell", value=row["cell_name"], key=f"name_{i}", label_visibility="collapsed"
-                )
-                st.session_state.batch[i]["cell_name"] = new_name
-            with c2:
-                if is_connection:
+            if is_connection:
+                c1, c2, c_mode, c3 = st.columns([3, 2, 2, 1])
+                with c1:
+                    new_name = st.text_input(
+                        "cell", value=row["cell_name"], key=f"name_{i}", label_visibility="collapsed"
+                    )
+                    st.session_state.batch[i]["cell_name"] = new_name
+                with c2:
                     if slot_codes:
                         current_code = row["slot_code"] if row["slot_code"] in slot_codes else slot_codes[0]
                         sel_code = st.selectbox(
@@ -298,7 +325,27 @@ else:
                         st.session_state.batch[i]["slot_code"] = sel_code
                     else:
                         st.warning("No slots for this tracker")
-                else:
+                with c_mode:
+                    cur_mode = row.get("mode_code", mode_names[0] if mode_names else "")
+                    if cur_mode not in mode_names and mode_names:
+                        cur_mode = mode_names[0]
+                    sel_mode = st.selectbox(
+                        "mode", mode_names, index=mode_names.index(cur_mode),
+                        key=f"mode_{i}", label_visibility="collapsed",
+                    )
+                    st.session_state.batch[i]["mode_id"] = mode_map[sel_mode]
+                    st.session_state.batch[i]["mode_code"] = sel_mode
+                with c3:
+                    if st.button("✕", key=f"del_{i}"):
+                        rows_to_remove.append(i)
+            else:
+                c1, c2, c3 = st.columns([3, 3, 1])
+                with c1:
+                    new_name = st.text_input(
+                        "cell", value=row["cell_name"], key=f"name_{i}", label_visibility="collapsed"
+                    )
+                    st.session_state.batch[i]["cell_name"] = new_name
+                with c2:
                     # Auto-resolve from DB
                     cell_id_lookup = next((c[0] for c in cells_db if c[1] == row["cell_name"]), None)
                     if cell_id_lookup:
@@ -312,9 +359,9 @@ else:
                     else:
                         st.caption("(new cell — no current slot)")
                         st.session_state.batch[i]["slot_id"] = None
-            with c3:
-                if st.button("✕", key=f"del_{i}"):
-                    rows_to_remove.append(i)
+                with c3:
+                    if st.button("✕", key=f"del_{i}"):
+                        rows_to_remove.append(i)
 
     for idx in reversed(rows_to_remove):
         remove_row(idx)
@@ -358,7 +405,7 @@ if st.button("Submit events", type="primary", disabled=not st.session_state.batc
                         "cell_id": cell_id,
                         "slot_id": row["slot_id"],
                         "event_type": "connection",
-                        "mode_id": mode_id,
+                        "mode_id": row.get("mode_id"),
                         "occurred_at": to_timestamptz(connection_date, "connection"),
                     })
                     db_rows.append({
@@ -373,7 +420,7 @@ if st.button("Submit events", type="primary", disabled=not st.session_state.batc
                         "cell_id": cell_id,
                         "slot_id": row["slot_id"],
                         "event_type": event_type,
-                        "mode_id": mode_id,
+                        "mode_id": row.get("mode_id"),
                         "occurred_at": to_timestamptz(connection_date, event_type),
                     })
             insert_events(db_rows)
