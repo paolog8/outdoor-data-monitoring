@@ -119,19 +119,28 @@ def build_slot_map(conn, tracker_id) -> dict:
 # ---------------------------------------------------------------------------
 
 def upsert_temperature_sensor(conn, serial_number: str) -> int:
-    """Idempotently register a temperature sensor by serial number. Returns sensor id."""
+    """Idempotently register a temperature sensor by serial number. Returns temperature_sensor.id (= sensor.id)."""
     with conn.cursor() as cur:
-        cur.execute(
-            """
-            INSERT INTO temperature_sensor (name, model, serial_number)
-            VALUES (%s, 'm7004', %s)
-            ON CONFLICT ON CONSTRAINT uq_temperature_sensor_serial_number DO NOTHING
-            """,
-            (f"m7004_{serial_number}", serial_number),
-        )
         cur.execute(
             "SELECT id FROM temperature_sensor WHERE serial_number = %s",
             (serial_number,),
+        )
+        row = cur.fetchone()
+        if row:
+            return row[0]
+
+        cur.execute(
+            "INSERT INTO sensor (sensor_type) VALUES ('temperature') RETURNING id"
+        )
+        parent_id = cur.fetchone()[0]
+
+        cur.execute(
+            """
+            INSERT INTO temperature_sensor (id, name, model, serial_number)
+            VALUES (%s, %s, 'm7004', %s)
+            RETURNING id
+            """,
+            (parent_id, f"m7004_{serial_number}", serial_number),
         )
         sensor_id = cur.fetchone()[0]
     conn.commit()
@@ -139,20 +148,29 @@ def upsert_temperature_sensor(conn, serial_number: str) -> int:
 
 
 def upsert_irradiance_sensor(conn, channel: str) -> int:
-    """Idempotently register an irradiance sensor by channel. Returns sensor id."""
+    """Idempotently register an irradiance sensor by channel. Returns irradiance_sensor.id (= sensor.id)."""
     serial = f"channel_{channel}"
     with conn.cursor() as cur:
         cur.execute(
-            """
-            INSERT INTO irradiance_sensor (name, model, serial_number)
-            VALUES (%s, 'PT-104', %s)
-            ON CONFLICT ON CONSTRAINT uq_irradiance_sensor_serial_number DO NOTHING
-            """,
-            (f"PT-104_{serial}", serial),
-        )
-        cur.execute(
             "SELECT id FROM irradiance_sensor WHERE serial_number = %s",
             (serial,),
+        )
+        row = cur.fetchone()
+        if row:
+            return row[0]
+
+        cur.execute(
+            "INSERT INTO sensor (sensor_type) VALUES ('irradiance') RETURNING id"
+        )
+        parent_id = cur.fetchone()[0]
+
+        cur.execute(
+            """
+            INSERT INTO irradiance_sensor (id, name, model, serial_number)
+            VALUES (%s, %s, 'PT-104', %s)
+            RETURNING id
+            """,
+            (parent_id, f"PT-104_{serial}", serial),
         )
         sensor_id = cur.fetchone()[0]
     conn.commit()

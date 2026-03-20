@@ -3,8 +3,7 @@
 -- sensor_id links to the sensor parent table (supertype), established in V5.
 
 CREATE TABLE temperature_sensor (
-    id              BIGSERIAL   PRIMARY KEY,
-    sensor_id       BIGINT      NOT NULL UNIQUE REFERENCES sensor(id),
+    id              BIGINT      PRIMARY KEY REFERENCES sensor(id),
     name            TEXT        NOT NULL,
     model           TEXT        NOT NULL,
     serial_number   TEXT,
