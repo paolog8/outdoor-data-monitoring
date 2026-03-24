@@ -10,7 +10,8 @@ Sensors are modelled using a **supertype/subtype** pattern:
 ```
 sensor (id, sensor_type)
   ├── temperature_sensor (id → sensor.id, name, model, serial_number, location)
-  └── irradiance_sensor  (id → sensor.id, name, model, serial_number, location)
+  ├── irradiance_sensor  (id → sensor.id, name, model, serial_number, location)
+  └── spectral_sensor    (id → sensor.id, name, model, instrument, serial_number, location, wavelengths_nm[])
 ```
 
 ### Why not a separate association table per sensor type?

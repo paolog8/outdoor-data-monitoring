@@ -65,6 +65,84 @@ VALUES %s
 ON CONFLICT (irradiance_sensor_id, time) DO NOTHING;
 ```
 
+## Spectral ingestion
+
+Spectral files are EKO WISER 35 CSVs placed in `data/spectral_data/<YEAR>/<YYYYMMDDH*.CSV>`.
+Each file contains one hour of measurements at 5-minute intervals for two sensor heads:
+MS-711 (short wavelengths, ~300–1117 nm) and MS-712 (long wavelengths, ~882–1800 nm).
+
+### File format
+
+The CSV has 8 header rows followed by wavelength data:
+
+```
+Row 0: Date          — date value at odd columns (e.g. '2026/02/01'); even columns empty
+Row 1: Time          — timestamp at odd columns; even columns empty
+Row 2: Memo          — instrument name ('EKO WISER 35')
+Row 3: Sensor        — model name per column ('MS-711' or 'MS-712'), all 24 filled
+Row 4: Exposure Time — integer ms per column
+Row 5: Sensor Temp.  — float °C per column
+Row 6: Power(V)      — float V per column
+Row 7: Column labels
+Row 8+: Data         — col 0 = wavelength (nm); cols 1–24 = irradiance (W/m²/µm) or empty
+```
+
+Columns 1–24 represent 12 timestamps × 2 sensors, interleaved: MS-711, MS-712, MS-711, MS-712, …
+
+Empty cells indicate that a wavelength is outside the sensor's active range and are not stored.
+
+### Storage model
+
+The **wavelength axis** is a hardware property of each sensor and is stored once in `spectral_sensor.wavelengths_nm[]` on first ingestion. Each measurement row stores only the aligned irradiance array:
+
+```
+spectral_sensor:     wavelengths_nm = [300.00, 301.00, ..., 1117.00]   (MS-711 example)
+spectral_measurement: irradiance_w_m2_um = [0.37, 0.47, ..., 6.92]    (one array per timestamp)
+```
+
+Sensor identity is determined by model name (serial_number = model name), so there is one
+`spectral_sensor` row per sensor head.
+
+```sql
+INSERT INTO spectral_measurement
+    (time, spectral_sensor_id, irradiance_w_m2_um, exposure_time_ms, sensor_temp_c, power_v)
+VALUES %s
+ON CONFLICT (spectral_sensor_id, time) DO NOTHING;
+```
+
+### Reconstruct a spectrum from stored arrays
+
+```sql
+-- Full spectrum for both sensors at a given timestamp
+SELECT s.model, w.wavelength_nm, m.irr
+FROM spectral_measurement m
+JOIN spectral_sensor s ON s.id = m.spectral_sensor_id
+JOIN LATERAL unnest(s.wavelengths_nm, m.irradiance_w_m2_um) AS w(wavelength_nm, irr) ON true
+WHERE m.time = '2026-02-01 12:00:00+00'
+ORDER BY s.model, w.wavelength_nm;
+```
+
+### Combined spectrum (sum in overlap region)
+
+MS-711 and MS-712 overlap between ~882–1117 nm. The combined spectrum is computed at query time
+by summing both sensors' irradiance values at each shared wavelength:
+
+```sql
+SELECT wavelength_nm, SUM(irr) AS combined_irradiance_w_m2_um
+FROM spectral_measurement m
+JOIN spectral_sensor s ON s.id = m.spectral_sensor_id
+JOIN LATERAL unnest(s.wavelengths_nm, m.irradiance_w_m2_um) AS w(wavelength_nm, irr) ON true
+WHERE m.time = '2026-02-01 12:00:00+00'
+GROUP BY wavelength_nm
+ORDER BY wavelength_nm;
+```
+
+### Ingestion tracking
+
+Spectral files are tracked in `ingestion_log` using keys of the form `spectral:<YEAR>/<FILENAME>`
+(e.g. `spectral:2026/2026020112.CSV`). This namespaces them from folder-based MPP/temperature/
+irradiance keys in the same table.
+
 ## Solar cell and connection tracking
 
 `solar_cell` and `mpp_connection_mode` are manually managed reference tables — they are not
