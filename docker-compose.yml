@@ -42,6 +42,7 @@ services:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      SYM_PASSWORD: ${SYM_PASSWORD}
     volumes:
       - ./symmetricds/engines:/opt/symmetricds/engines
       - symmetricds_data:/opt/symmetricds/tmp
