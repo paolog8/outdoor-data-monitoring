@@ -27,6 +27,7 @@ services:
       FLYWAY_USER: ${POSTGRES_USER}
       FLYWAY_PASSWORD: ${POSTGRES_PASSWORD}
       FLYWAY_CONNECT_RETRIES: 10
+      FLYWAY_PLACEHOLDERS_SYM_PASSWORD: ${SYM_PASSWORD}
     volumes:
       - ./migrations:/flyway/sql:ro
     depends_on:
