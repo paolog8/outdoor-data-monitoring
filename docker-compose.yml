@@ -41,8 +41,8 @@ services:
     environment:
       SYM_PASSWORD: ${SYM_PASSWORD}
     volumes:
-      - ./symmetricds/engines:/opt/symmetricds/engines
-      - symmetricds_data:/opt/symmetricds/tmp
+      - ./symmetricds/engines:/opt/symmetric-ds/engines
+      - symmetricds_data:/opt/symmetric-ds/tmp
     ports:
       - "31415:31415"
     depends_on:
