@@ -2,6 +2,7 @@ services:
 
   postgres:
     image: timescale/timescaledb:latest-pg17
+    container_name: postgres
     restart: unless-stopped
     env_file: .env
     environment:
@@ -36,12 +37,14 @@ services:
 
   symmetricds:
     image: jumpmind/symmetricds:latest
+    container_name: symmetricds
     restart: unless-stopped
     env_file: .env
     environment:
       SYM_PASSWORD: ${SYM_PASSWORD}
     volumes:
       - ./symmetricds/engines:/opt/symmetric-ds/engines
+      - ./symmetricds/conf/log4j2.xml:/opt/symmetric-ds/conf/log4j2.xml:ro
       - symmetricds_data:/opt/symmetric-ds/tmp
     ports:
       - "31415:31415"
