@@ -42,6 +42,9 @@ services:
     env_file: .env
     environment:
       SYM_PASSWORD: ${SYM_PASSWORD}
+      NO_PROXY: "solar-energy-data.helmholtz-berlin.de"
+      no_proxy: "solar-energy-data.helmholtz-berlin.de"
+      JAVA_TOOL_OPTIONS: "-Dhttps.nonProxyHosts=solar-energy-data.helmholtz-berlin.de -Dhttp.nonProxyHosts=solar-energy-data.helmholtz-berlin.de"
     volumes:
       - ./symmetricds/engines:/opt/symmetric-ds/engines
       - ./symmetricds/conf/log4j2.xml:/opt/symmetric-ds/conf/log4j2.xml:ro
