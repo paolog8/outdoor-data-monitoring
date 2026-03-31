@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Configuration status="WARN" monitorInterval="30">
+    <Appenders>
+        <Console name="console" target="SYSTEM_OUT">
+            <PatternLayout pattern="%d [%t] %-5p %c{1.} - %m%n"/>
+        </Console>
+        <RollingFile name="rolling" fileName="${sys:log.file}" filePattern="${sys:log.file}.%i">
+            <PatternLayout pattern="%d [%t] %-5p %c{1.} - %m%n"/>
+            <Policies>
+                <SizeBasedTriggeringPolicy size="25 MB"/>
+            </Policies>
+            <DefaultRolloverStrategy max="3"/>
+        </RollingFile>
+    </Appenders>
+    <Loggers>
+        <Logger name="org.jumpmind.symmetric" level="info" additivity="false">
+            <AppenderRef ref="console"/>
+            <AppenderRef ref="rolling"/>
+        </Logger>
+        <Root level="error">
+            <AppenderRef ref="console"/>
+            <AppenderRef ref="rolling"/>
+        </Root>
+    </Loggers>
+</Configuration>
