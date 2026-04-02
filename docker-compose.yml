@@ -43,6 +43,8 @@ services:
       SYM_PASSWORD: ${SYM_PASSWORD}
       SYM_SERVER_ADDRESS: ${SYM_SERVER_ADDRESS}
       SYM_SERVER_PORT: ${SYM_SERVER_PORT}
+      no_proxy: grafana01.csn29.bessy.de
+      NO_PROXY: grafana01.csn29.bessy.de
     volumes:
       - ./symmetricds/engines:/opt/symmetric-ds/engines
     ports:
