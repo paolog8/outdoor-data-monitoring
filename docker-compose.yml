@@ -1,5 +1,4 @@
 services:
-
   postgres:
     image: timescale/timescaledb:latest-pg17
     container_name: postgres
@@ -36,17 +35,16 @@ services:
         condition: service_healthy
 
   symmetricds:
-    image: jumpmind/symmetricds:latest
+    image: jumpmind/symmetricds:3.17.0
     container_name: symmetricds
     restart: unless-stopped
     env_file: .env
     environment:
       SYM_PASSWORD: ${SYM_PASSWORD}
-      JAVA_TOOL_OPTIONS: "-Dhttps.proxyHost=http-proxy.helmholtz-berlin.de -Dhttps.proxyPort=3128 -Dhttp.proxyHost=http-proxy.helmholtz-berlin.de -Dhttp.proxyPort=3128 -Dhttp.nonProxyHosts=localhost|postgres|symmetricds|127.0.0.1|host.docker.internal|192.168.65.254"
+      SYM_SERVER_ADDRESS: ${SYM_SERVER_ADDRESS}
+      SYM_SERVER_PORT: ${SYM_SERVER_PORT}
     volumes:
       - ./symmetricds/engines:/opt/symmetric-ds/engines
-      - ./symmetricds/conf/log4j2.xml:/opt/symmetric-ds/conf/log4j2.xml:ro
-      - symmetricds_data:/opt/symmetric-ds/tmp
     ports:
       - "31415:31415"
     depends_on:
