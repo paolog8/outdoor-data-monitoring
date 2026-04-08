@@ -10,6 +10,6 @@ echo "0 2 * * * . /etc/cron_env; python /app/ingest.py >> /var/log/ingest.log 2>
     | crontab -
 
 # Run immediately on container start to catch any backlog without waiting until midnight
-python /app/ingest.py
+python /app/ingest.py || true
 
 exec cron -f
