@@ -53,6 +53,28 @@ services:
       postgres:
         condition: service_healthy
 
+  restart-orchestrator:
+    image: docker:cli
+    entrypoint:
+      - sh
+      - -c
+      - |
+        INTERVAL=$${RESTART_INTERVAL:-21600}
+        echo "[restart-orchestrator] Will restart symmetricds every $${INTERVAL}s"
+        while true; do
+          sleep $$INTERVAL
+          echo "[restart-orchestrator] $(date -u) — restarting symmetricds"
+          docker restart -t 30 symmetricds
+          echo "[restart-orchestrator] $(date -u) — done"
+        done
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      - symmetricds
+    environment:
+      - RESTART_INTERVAL=${RESTART_INTERVAL:-21600}
+    restart: unless-stopped
+
   ingestion:
     build:
       context: ./ingestion
