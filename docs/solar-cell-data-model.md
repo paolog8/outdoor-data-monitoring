@@ -6,13 +6,16 @@
 
 ```
 solar_cell
-  id               BIGSERIAL PK
-  name             TEXT  UNIQUE  — human-readable lab ID
-  area_cm2         DOUBLE PRECISION
-  manufacturer_id  BIGINT → scientist.id
-  owner_id         BIGINT → scientist.id
-  group_id         BIGINT → solar_cell_group.id  (NULL = standalone)
+  id                BIGSERIAL PK
+  name              TEXT  UNIQUE  — human-readable lab ID
+  area_cm2          DOUBLE PRECISION
+  manufacturer_id   BIGINT → scientist.id
+  owner_id          BIGINT → scientist.id
+  group_id          BIGINT → solar_cell_group.id  (NULL = standalone)
   position_in_group TEXT  (e.g. 'P1', 'top', NULL)
+  id_pvcomb         TEXT  — identifier assigned by the PVcomB facility
+  id_alternative    TEXT  — additional identifier; pre-populated from name for existing rows
+  nomad_entry_url   TEXT  — URL to the corresponding NOMAD metadata entry
 ```
 
 Cells can optionally be associated with experiments via the `solar_cell_experiment` junction table.
