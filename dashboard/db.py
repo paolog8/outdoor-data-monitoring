@@ -41,7 +41,8 @@ def load_cells_full():
                     AS owner,
                 grp.name AS group_name,
                 gt.code AS group_type,
-                sc.position_in_group
+                sc.position_in_group,
+                sc.nomad_entry_url
             FROM solar_cell sc
             LEFT JOIN scientist mfr ON mfr.id = sc.manufacturer_id
             LEFT JOIN scientist owner ON owner.id = sc.owner_id
@@ -430,7 +431,7 @@ def insert_cell(name, area_cm2, manufacturer_id, owner_id, group_id, position_in
 
 
 def update_cell_metadata(
-    cell_id, area_cm2, manufacturer_id, owner_id, group_id, position_in_group
+    cell_id, area_cm2, manufacturer_id, owner_id, group_id, position_in_group, nomad_entry_url=None
 ):
     with get_connection() as conn, conn.cursor() as cur:
         cur.execute(
@@ -440,7 +441,8 @@ def update_cell_metadata(
                 manufacturer_id = %s,
                 owner_id = %s,
                 group_id = %s,
-                position_in_group = %s
+                position_in_group = %s,
+                nomad_entry_url = %s
             WHERE id = %s
             """,
             (
@@ -449,6 +451,7 @@ def update_cell_metadata(
                 owner_id,
                 group_id,
                 position_in_group or None,
+                nomad_entry_url or None,
                 cell_id,
             ),
         )

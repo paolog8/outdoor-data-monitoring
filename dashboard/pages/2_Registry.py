@@ -294,6 +294,11 @@ def _render_cells_tab():
             value=cell_data["position_in_group"] or "",
             key=f"edit_position_{cell_data['id']}",
         )
+        edit_nomad_url = st.text_input(
+            "NOMAD entry URL",
+            value=cell_data["nomad_entry_url"] or "",
+            key=f"edit_nomad_url_{cell_data['id']}",
+        )
 
         if st.button("Update cell", key=f"update_cell_{cell_data['id']}"):
             try:
@@ -305,6 +310,7 @@ def _render_cells_tab():
                     scientist_options[edit_owner],
                     group_options[edit_group],
                     edit_position.strip() or None,
+                    edit_nomad_url.strip() or None,
                 )
                 st.success("Cell updated.")
                 _clear_and_rerun()
