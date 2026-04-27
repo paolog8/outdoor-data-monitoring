@@ -901,12 +901,13 @@ def main():
     try:
         tracker_id = ensure_registry(conn)
         slot_map   = build_slot_map(conn, tracker_id)
-        pending    = discover_pending_folders(conn, data_root)
+        mppt_root  = data_root / "mppt_temp_irr"
+        pending    = discover_pending_folders(conn, mppt_root)
 
         if pending:
             logger.info("%d pending folder(s): %s", len(pending), pending)
             for folder_name in pending:
-                process_folder(conn, slot_map, folder_name, data_root, batch_size, dry_run)
+                process_folder(conn, slot_map, folder_name, mppt_root, batch_size, dry_run)
         else:
             logger.info("No pending folders found.")
 
