@@ -1,5 +1,136 @@
 # Ingestion Patterns
 
+## Pipeline architecture
+
+The ingestion service (`ingestion/`) is split into one module per data type. `ingest.py` is the entry point and thin orchestrator; everything else is self-contained.
+
+```
+ingestion/
+  constants.py     — shared constants and compiled regexes (BOARDS, CHANNELS, *_FILE_RE, …)
+  db.py            — get_connection() — reads PG* env vars, returns a psycopg2 connection
+  registry.py      — ensure_registry(), build_slot_map(), upsert_{temperature,irradiance,spectral}_sensor()
+  mpp.py           — parse_file(), ingest_file(), ingest_mpp_folder()
+  temperature.py   — parse_temperature_file(), ingest_temperature_measurements(), ingest_temperature_folder()
+  irradiance.py    — parse_irradiance_file(), ingest_irradiance_measurements(), ingest_irradiance_folder()
+  spectral.py      — parse_spectral_file(), ingest_spectral_measurements(), ingest_spectral_file(),
+                     discover_pending_spectral_files()
+  ingest.py        — discover_pending_folders(), process_folder(), main()
+```
+
+Each data-type module is fully self-contained: it owns its parser, its DB writer, and (if needed) its sensor-registry upsert. `ingest.py` imports the folder-level functions and wires them together inside `process_folder`.
+
+## Adding a new sensor type
+
+Work through these steps in order. Each step maps to exactly one file unless noted.
+
+### 1. DB migration
+
+Create a new Flyway migration (`V{N}__<description>.sql`) that adds:
+
+- A subtype table inheriting from `sensor`:
+  ```sql
+  CREATE TABLE my_sensor (
+      id            BIGINT PRIMARY KEY REFERENCES sensor(id),
+      name          TEXT NOT NULL,
+      model         TEXT,
+      serial_number TEXT UNIQUE,   -- used as the upsert key
+      ...
+  );
+  ```
+- A hypertable for measurements:
+  ```sql
+  CREATE TABLE my_measurement (
+      time          TIMESTAMPTZ NOT NULL,
+      my_sensor_id  BIGINT NOT NULL REFERENCES my_sensor(id),
+      value         DOUBLE PRECISION NOT NULL,
+      ...
+      UNIQUE (my_sensor_id, time)
+  );
+  SELECT create_hypertable('my_measurement', 'time');
+  ```
+- Any UNIQUE constraints or indexes needed for idempotent upserts.
+
+### 2. constants.py — filename regex
+
+Add a compiled regex that matches the new sensor's data files:
+
+```python
+MY_SENSOR_FILE_RE = re.compile(r"^my_device_(\w+)\.txt$")
+```
+
+Import it in the new module via `from constants import MY_SENSOR_FILE_RE`.
+
+### 3. New module `my_sensor.py`
+
+Create `ingestion/my_sensor.py` with three functions:
+
+**`parse_my_sensor_file(file_path) -> list`**
+Returns a list of tuples, one per data row. Skips malformed rows with `logger.warning`.
+Follow the same TSV-reader pattern as `parse_temperature_file` in `temperature.py`.
+
+**`ingest_my_sensor_measurements(cur, sensor_id, rows, batch_size, dry_run) -> int`**
+Batch-inserts via `psycopg2.extras.execute_values` with `ON CONFLICT (my_sensor_id, time) DO NOTHING`.
+Returns the row count actually written (`cur.rowcount`).
+
+**`ingest_my_sensor_folder(conn, folder_path, batch_size, dry_run) -> int`**
+Iterates the folder, matches filenames with `MY_SENSOR_FILE_RE`, calls the upsert (step 4),
+parses, inserts in one transaction per file, rolls back and re-raises on failure.
+
+### 4. registry.py — sensor upsert
+
+Add `upsert_my_sensor(conn, serial_number) -> int`:
+
+```python
+def upsert_my_sensor(conn, serial_number: str) -> int:
+    with conn.cursor() as cur:
+        cur.execute("SELECT id FROM my_sensor WHERE serial_number = %s", (serial_number,))
+        row = cur.fetchone()
+        if row:
+            return row[0]
+        cur.execute("INSERT INTO sensor (sensor_type) VALUES ('my_sensor') RETURNING id")
+        parent_id = cur.fetchone()[0]
+        cur.execute(
+            "INSERT INTO my_sensor (id, name, serial_number) VALUES (%s, %s, %s) RETURNING id",
+            (parent_id, f"my_device_{serial_number}", serial_number),
+        )
+        sensor_id = cur.fetchone()[0]
+    conn.commit()
+    return sensor_id
+```
+
+Import this in `my_sensor.py`: `from registry import upsert_my_sensor`.
+
+### 5. ingest.py — wire into process_folder
+
+Add one import and one line inside `process_folder`:
+
+```python
+from my_sensor import ingest_my_sensor_folder
+
+# inside process_folder:
+n += ingest_my_sensor_folder(conn, folder_path, batch_size, dry_run)
+```
+
+If the new sensor stores files outside the standard folder layout (like spectral), add a
+`discover_pending_*` function in the new module and call it separately from `main()`.
+
+### 6. Verify end-to-end
+
+```bash
+# Syntax check
+python -m py_compile ingestion/my_sensor.py
+
+# Dry run against real data (no DB writes)
+DRY_RUN=true DATA_ROOT=/path/to/data docker compose run --rm ingestion
+
+# Full run
+DATA_ROOT=/path/to/data docker compose run --rm ingestion
+```
+
+Check `ingestion_log` for `status='completed'` entries and `rows_inserted > 0`.
+
+---
+
 ## MPP Measurement
 
 The `mpp_measurement` hypertable references `mpp_tracking_slot` by integer id. Since device data arrives identified by `(mpp_tracker_id, slot_code)` rather than an id, use the following single-statement pattern to resolve the slot and insert the measurement in one DB round trip — no application-side id lookup needed.
