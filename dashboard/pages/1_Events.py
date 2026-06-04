@@ -174,6 +174,31 @@ def _render_batch_builder(existing_cells, add_callback, prefix):
         st.markdown("<br>".join(lines), unsafe_allow_html=True)
 
 
+def _render_cell_picker(existing_cells, add_callback, prefix):
+    already_added = {row["cell_name"] for row in st.session_state.get(prefix, [])}
+    available = [name for _, name in existing_cells if name not in already_added]
+
+    col_sel, col_btn = st.columns([4, 1])
+    with col_sel:
+        selected = st.multiselect(
+            "Search and select cells",
+            available,
+            key=f"{prefix}_picker",
+            placeholder="Type to search...",
+        )
+    with col_btn:
+        st.write("")
+        if st.button(
+            "Add to list →",
+            key=f"{prefix}_picker_add",
+            use_container_width=True,
+            disabled=not selected,
+        ):
+            add_callback(selected)
+            del st.session_state[f"{prefix}_picker"]
+            st.rerun()
+
+
 def _render_setup_tab():
     event_date = _render_date_picker("setup")
     st.divider()
@@ -612,7 +637,7 @@ def _render_teardown_tab():
     existing_cells = load_cells()
     cell_id_by_name = {cell_name: cell_id for cell_id, cell_name in existing_cells}
 
-    _render_batch_builder(existing_cells, _add_teardown_rows, "teardown")
+    _render_cell_picker(existing_cells, _add_teardown_rows, "teardown")
 
     st.divider()
     if not st.session_state.teardown:
