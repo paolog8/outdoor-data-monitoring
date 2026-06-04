@@ -26,7 +26,6 @@ from db import (
 )
 
 
-st.set_page_config(page_title="Registry", layout="wide")
 st.title("Registry")
 
 

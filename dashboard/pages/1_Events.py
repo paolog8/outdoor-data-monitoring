@@ -23,7 +23,6 @@ from db import (
 )
 
 
-st.set_page_config(page_title="Events", layout="wide")
 st.title("Cell Events")
 
 
@@ -118,6 +117,28 @@ def _clear_and_rerun():
     st.rerun()
 
 
+def _render_date_picker(prefix):
+    def _set_today():
+        st.session_state[f"{prefix}_event_date"] = date.today()
+
+    col_date, col_btn = st.columns([2, 1])
+    with col_date:
+        event_date = st.date_input(
+            "Event date",
+            value=None,
+            key=f"{prefix}_event_date",
+        )
+    with col_btn:
+        st.write("")
+        st.button("Set to today", key=f"{prefix}_set_today", on_click=_set_today)
+    if event_date is None:
+        st.markdown(
+            '<p style="color:#ff4b4b; font-size:0.85em; margin-top:-0.5rem">⚠ Date is required</p>',
+            unsafe_allow_html=True,
+        )
+    return event_date
+
+
 def _render_batch_builder(existing_cells, add_callback, prefix):
     col_batch, col_single = st.columns([2, 1])
 
@@ -164,7 +185,9 @@ def _render_batch_builder(existing_cells, add_callback, prefix):
             add_callback([pick])
 
 
-def _render_setup_tab(event_date):
+def _render_setup_tab():
+    event_date = _render_date_picker("setup")
+    st.divider()
     existing_cells = load_cells()
     existing_names = {name for _, name in existing_cells}
     sensors = load_sensors()
@@ -462,7 +485,9 @@ def _render_setup_tab(event_date):
 
     st.divider()
     if st.button(
-        "Submit setup events", type="primary", disabled=not st.session_state.setup
+        "Submit setup events",
+        type="primary",
+        disabled=not st.session_state.setup or event_date is None,
     ):
         errors = []
         db_rows_mpp = []
@@ -561,7 +586,9 @@ def _render_setup_tab(event_date):
             st.error(f"Database error: {exc}")
 
 
-def _render_teardown_tab(event_date):
+def _render_teardown_tab():
+    event_date = _render_date_picker("teardown")
+    st.divider()
     existing_cells = load_cells()
     cell_id_by_name = {cell_name: cell_id for cell_id, cell_name in existing_cells}
 
@@ -656,7 +683,9 @@ def _render_teardown_tab(event_date):
 
     st.divider()
     if st.button(
-        "Submit teardown events", type="primary", disabled=not st.session_state.teardown
+        "Submit teardown events",
+        type="primary",
+        disabled=not st.session_state.teardown or event_date is None,
     ):
         errors = []
         db_rows_mpp = []
@@ -727,13 +756,10 @@ def _render_teardown_tab(event_date):
 
 _ensure_state()
 
-with st.sidebar:
-    event_date = st.date_input("Date", value=date.today())
-
 tab_setup, tab_teardown = st.tabs(["Connect & Associate", "Disconnect & Dissociate"])
 
 with tab_setup:
-    _render_setup_tab(event_date)
+    _render_setup_tab()
 
 with tab_teardown:
-    _render_teardown_tab(event_date)
+    _render_teardown_tab()
