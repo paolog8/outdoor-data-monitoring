@@ -191,6 +191,9 @@ def _render_setup_tab():
         sensor_id_by_label[label] = sensor_id
         label_by_sensor_id[sensor_id] = label
 
+    scientist_options = _scientist_options()
+    group_options = _group_options()
+
     _render_batch_builder(existing_cells, _add_setup_rows, "setup")
 
     trackers = load_trackers()
@@ -267,20 +270,22 @@ def _render_setup_tab():
         mode_id_by_code = {mode_code: mode_id for mode_id, mode_code in modes}
 
         if use_board_channel:
-            header = st.columns([3, 1, 2, 2, 3, 1])
+            header = st.columns([3, 1, 2, 2, 3, 1, 1])
             header[0].markdown("**Cell name**")
             header[1].markdown("**Board**")
             header[2].markdown("**Ch**")
             header[3].markdown("**Mode**")
             header[4].markdown("**Sensors**")
-            header[5].markdown("")
+            header[5].markdown("**Metadata**")
+            header[6].markdown("")
         else:
-            header = st.columns([3, 2, 2, 3, 1])
+            header = st.columns([3, 2, 2, 3, 1, 1])
             header[0].markdown("**Cell name**")
             header[1].markdown("**Slot**")
             header[2].markdown("**Mode**")
             header[3].markdown("**Sensors**")
-            header[4].markdown("")
+            header[4].markdown("**Metadata**")
+            header[5].markdown("")
 
         rows_to_remove = []
         board_options = ["-"] + [str(board) for board in boards]
@@ -289,12 +294,12 @@ def _render_setup_tab():
 
         for index, row in enumerate(st.session_state.setup):
             if use_board_channel:
-                c_name, c_board, c_channel, c_mode, c_sensors, c_delete = st.columns(
-                    [3, 1, 2, 2, 3, 1]
+                c_name, c_board, c_channel, c_mode, c_sensors, c_meta, c_delete = (
+                    st.columns([3, 1, 2, 2, 3, 1, 1])
                 )
             else:
-                c_name, c_slot, c_mode, c_sensors, c_delete = st.columns(
-                    [3, 2, 2, 3, 1]
+                c_name, c_slot, c_mode, c_sensors, c_meta, c_delete = st.columns(
+                    [3, 2, 2, 3, 1, 1]
                 )
 
             with c_name:
@@ -418,6 +423,64 @@ def _render_setup_tab():
                     sensor_id_by_label[label] for label in selected_sensor_labels
                 ]
 
+            with c_meta:
+                if row["is_new"]:
+                    _has_meta = (
+                        bool(
+                            st.session_state.get(f"setup_meta_area_{index}", "").strip()
+                        )
+                        or st.session_state.get(
+                            f"setup_meta_manufacturer_{index}", "(none)"
+                        )
+                        != "(none)"
+                        or st.session_state.get(f"setup_meta_owner_{index}", "(none)")
+                        != "(none)"
+                        or st.session_state.get(
+                            f"setup_meta_group_{index}", "(standalone)"
+                        )
+                        != "(standalone)"
+                        or bool(
+                            st.session_state.get(
+                                f"setup_meta_position_{index}", ""
+                            ).strip()
+                        )
+                        or bool(
+                            st.session_state.get(
+                                f"setup_meta_nomad_{index}", ""
+                            ).strip()
+                        )
+                    )
+                    with st.popover("📋✓" if _has_meta else "📋"):
+                        st.caption(f"Metadata for **{row['cell_name']}**")
+                        st.text_input(
+                            "Area (cm²)",
+                            placeholder="e.g. 0.16",
+                            key=f"setup_meta_area_{index}",
+                        )
+                        st.selectbox(
+                            "Manufacturer",
+                            list(scientist_options.keys()),
+                            key=f"setup_meta_manufacturer_{index}",
+                        )
+                        st.selectbox(
+                            "Owner",
+                            list(scientist_options.keys()),
+                            key=f"setup_meta_owner_{index}",
+                        )
+                        st.selectbox(
+                            "Group",
+                            list(group_options.keys()),
+                            key=f"setup_meta_group_{index}",
+                        )
+                        st.text_input(
+                            "Position in group",
+                            placeholder="P1, top, ...",
+                            key=f"setup_meta_position_{index}",
+                        )
+                        st.text_input(
+                            "NOMAD entry URL", key=f"setup_meta_nomad_{index}"
+                        )
+
             with c_delete:
                 if st.button("✕", key=f"setup_delete_{index}"):
                     rows_to_remove.append(index)
@@ -426,51 +489,6 @@ def _render_setup_tab():
             st.session_state.setup.pop(index)
         if rows_to_remove:
             st.rerun()
-
-    setup_area_text = ""
-    setup_manufacturer_label = "(none)"
-    setup_owner_label = "(none)"
-    setup_group_label = "(standalone)"
-    setup_position = ""
-    setup_nomad_url = ""
-    if any(row["is_new"] for row in st.session_state.setup):
-        st.divider()
-        st.subheader("New cell metadata")
-        col_a, col_b = st.columns(2)
-        scientist_options = _scientist_options()
-        group_options = _group_options()
-
-        with col_a:
-            setup_area_text = st.text_input(
-                "Area (cm²)",
-                placeholder="e.g. 0.16",
-                key="setup_area_text",
-            )
-            setup_manufacturer_label = st.selectbox(
-                "Manufacturer",
-                list(scientist_options.keys()),
-                key="setup_manufacturer",
-            )
-            setup_owner_label = st.selectbox(
-                "Owner",
-                list(scientist_options.keys()),
-                key="setup_owner",
-            )
-        with col_b:
-            setup_group_label = st.selectbox(
-                "Group",
-                list(group_options.keys()),
-                key="setup_group",
-            )
-            setup_position = st.text_input(
-                "Position in group",
-                placeholder="P1, top, ...",
-                key="setup_position",
-            )
-            setup_nomad_url = st.text_input(
-                "NOMAD entry URL",
-                key="setup_nomad_url",
-            )
 
     st.divider()
     if st.button(
@@ -501,27 +519,38 @@ def _render_setup_tab():
         if len(names) != len(set(names)):
             errors.append("Setup rows contain duplicate cell names.")
 
-        try:
-            area_cm2 = (
-                _parse_optional_float(setup_area_text) if setup_area_text else None
+        row_meta = []
+        for i, row in enumerate(st.session_state.setup):
+            area_text = st.session_state.get(f"setup_meta_area_{i}", "")
+            try:
+                area_cm2 = (
+                    _parse_optional_float(area_text) if area_text.strip() else None
+                )
+            except ValueError:
+                errors.append(f"{row['cell_name']}: area must be a valid number.")
+                area_cm2 = None
+            row_meta.append(
+                {
+                    "area_cm2": area_cm2,
+                    "manufacturer_id": scientist_options.get(
+                        st.session_state.get(f"setup_meta_manufacturer_{i}", "(none)")
+                    ),
+                    "owner_id": scientist_options.get(
+                        st.session_state.get(f"setup_meta_owner_{i}", "(none)")
+                    ),
+                    "group_id": group_options.get(
+                        st.session_state.get(f"setup_meta_group_{i}", "(standalone)")
+                    ),
+                    "position": st.session_state.get(
+                        f"setup_meta_position_{i}", ""
+                    ).strip()
+                    or None,
+                    "nomad_url": st.session_state.get(
+                        f"setup_meta_nomad_{i}", ""
+                    ).strip()
+                    or None,
+                }
             )
-        except ValueError:
-            errors.append("Area must be a valid number.")
-            area_cm2 = None
-
-        manufacturer_id = _scientist_options().get(setup_manufacturer_label)
-        owner_id = _scientist_options().get(setup_owner_label)
-        group_id = _group_options().get(setup_group_label)
-        has_shared_metadata = any(
-            value not in (None, "")
-            for value in [
-                area_cm2,
-                manufacturer_id,
-                owner_id,
-                group_id,
-                setup_position.strip(),
-            ]
-        )
 
         if errors:
             for error in errors:
@@ -529,18 +558,20 @@ def _render_setup_tab():
             return
 
         try:
-            for row in st.session_state.setup:
+            for i, row in enumerate(st.session_state.setup):
                 cell_id = ensure_cell(row["cell_name"])
-                if row["is_new"] and has_shared_metadata:
-                    update_cell_metadata(
-                        cell_id,
-                        area_cm2,
-                        manufacturer_id,
-                        owner_id,
-                        group_id,
-                        setup_position.strip() or None,
-                        setup_nomad_url.strip() or None,
-                    )
+                if row["is_new"]:
+                    meta = row_meta[i]
+                    if any(v is not None for v in meta.values()):
+                        update_cell_metadata(
+                            cell_id,
+                            meta["area_cm2"],
+                            meta["manufacturer_id"],
+                            meta["owner_id"],
+                            meta["group_id"],
+                            meta["position"],
+                            meta["nomad_url"],
+                        )
 
                 if row["slot_id"] is not None:
                     db_rows_mpp.append(
