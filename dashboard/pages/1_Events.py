@@ -728,7 +728,7 @@ def _render_teardown_tab():
 
     st.divider()
     if st.button(
-        "Submit teardown events",
+        "Submit disconnect & dissociate events",
         type="primary",
         disabled=not st.session_state.teardown or event_date is None,
     ):
