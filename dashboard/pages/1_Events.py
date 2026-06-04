@@ -140,49 +140,38 @@ def _render_date_picker(prefix):
 
 
 def _render_batch_builder(existing_cells, add_callback, prefix):
-    col_batch, col_single = st.columns([2, 1])
+    existing_names = {name for _, name in existing_cells}
 
-    with col_batch:
-        base_name = st.text_input(
-            "Base name",
-            placeholder="SUB003_px",
-            key=f"{prefix}_base_name",
-        )
+    cell_name = st.text_input(
+        "Cell / batch name",
+        placeholder="e.g. SUB003_p — type alone for a single cell, add suffixes below for a batch",
+        key=f"{prefix}_cell_name",
+    )
+    col_sfx, col_btn = st.columns([3, 1])
+    with col_sfx:
         suffixes = st.text_input(
-            "Suffixes (comma-separated)",
-            placeholder="A,B,C,D,E,F",
+            "Suffixes (comma-separated, optional)",
+            placeholder="A,B,C,D — leave empty for a single cell",
             key=f"{prefix}_suffixes",
         )
-        if st.button("Add to batch", key=f"{prefix}_add_batch"):
-            add_callback(_batch_names(base_name, suffixes))
+    with col_btn:
+        st.write("")
+        if st.button(
+            "Add cell(s) to list →", key=f"{prefix}_add", use_container_width=True
+        ):
+            add_callback(_batch_names(cell_name, suffixes))
 
-    with col_single:
-        add_mode = st.radio(
-            "Cell",
-            ["Existing", "New"],
-            horizontal=True,
-            key=f"{prefix}_add_mode",
-        )
-        if add_mode == "Existing":
-            options = [cell_name for _, cell_name in existing_cells]
-            if options:
-                pick = st.selectbox(
-                    "Select cell",
-                    options,
-                    label_visibility="collapsed",
-                    key=f"{prefix}_pick_existing",
+    names = _batch_names(cell_name, suffixes) if cell_name.strip() else []
+    if names:
+        lines = []
+        for name in names:
+            if name in existing_names:
+                lines.append(
+                    f'<span style="color:#ffa500">⚠ {name} — already in registry</span>'
                 )
             else:
-                pick = ""
-                st.caption("No existing cells yet")
-        else:
-            pick = st.text_input(
-                "New cell name",
-                label_visibility="collapsed",
-                key=f"{prefix}_pick_new",
-            )
-        if st.button("Add row", key=f"{prefix}_add_single"):
-            add_callback([pick])
+                lines.append(f'<span style="opacity:0.65">+ {name}</span>')
+        st.markdown("<br>".join(lines), unsafe_allow_html=True)
 
 
 def _render_setup_tab():
