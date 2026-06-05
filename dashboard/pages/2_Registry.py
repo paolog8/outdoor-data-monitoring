@@ -14,6 +14,7 @@ from db import (
     load_cell_types,
     load_cells,
     load_cells_full,
+    load_cell_experiments,
     load_experiment_cells,
     load_experiments,
     load_experiments_with_projects,
@@ -23,6 +24,7 @@ from db import (
     load_projects,
     load_scientists,
     load_sensors_full,
+    unlink_cell_experiment,
     update_cell_metadata,
     update_experiment,
     update_group,
@@ -438,6 +440,23 @@ def _render_cells_tab():
             except Exception as exc:
                 st.error(f"Database error: {exc}")
 
+        st.subheader("Experiment assignments")
+        cell_experiments = load_cell_experiments(cell_data["id"])
+        if not cell_experiments:
+            st.caption("No experiment assignments.")
+        else:
+            for exp_id, exp_name in cell_experiments:
+                col_name, col_btn = st.columns([4, 1])
+                with col_name:
+                    st.write(exp_name)
+                with col_btn:
+                    if st.button("Remove", key=f"unlink_cell_exp_{cell_data['id']}_{exp_id}"):
+                        try:
+                            unlink_cell_experiment(cell_data["id"], exp_id)
+                            _clear_and_rerun()
+                        except Exception as exc:
+                            st.error(f"Database error: {exc}")
+
     st.divider()
     st.subheader("All cells")
     st.dataframe(load_cells_full(), use_container_width=True)
@@ -653,8 +672,19 @@ def _render_experiments_tab():
 
         assigned_cells = load_experiment_cells(experiment_id)
         assigned_names = [cell_name for _, cell_name in assigned_cells]
-        if assigned_names:
-            st.caption("Assigned cells: " + ", ".join(assigned_names))
+        if assigned_cells:
+            st.write("**Assigned cells:**")
+            for cell_id, cell_name in assigned_cells:
+                col_name, col_btn = st.columns([4, 1])
+                with col_name:
+                    st.write(cell_name)
+                with col_btn:
+                    if st.button("Remove", key=f"unlink_exp_cell_{experiment_id}_{cell_id}"):
+                        try:
+                            unlink_cell_experiment(cell_id, experiment_id)
+                            _clear_and_rerun()
+                        except Exception as exc:
+                            st.error(f"Database error: {exc}")
         else:
             st.caption("Assigned cells: none")
 

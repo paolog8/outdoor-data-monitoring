@@ -333,6 +333,21 @@ def insert_spectral_sensor(name, model, serial_number, wavelengths_nm, location)
         return sensor_id
 
 
+def load_cell_experiments(cell_id):
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT e.id, e.name
+            FROM solar_cell_experiment sce
+            JOIN experiment e ON e.id = sce.experiment_id
+            WHERE sce.solar_cell_id = %s
+            ORDER BY e.name
+            """,
+            (cell_id,),
+        )
+        return cur.fetchall()
+
+
 def load_experiment_cells(experiment_id):
     with get_connection() as conn, conn.cursor() as cur:
         cur.execute(
@@ -645,6 +660,15 @@ def link_experiment_project(experiment_id, project_id):
             ON CONFLICT DO NOTHING
             """,
             (experiment_id, project_id),
+        )
+        conn.commit()
+
+
+def unlink_cell_experiment(solar_cell_id, experiment_id):
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "DELETE FROM solar_cell_experiment WHERE solar_cell_id = %s AND experiment_id = %s",
+            (solar_cell_id, experiment_id),
         )
         conn.commit()
 
