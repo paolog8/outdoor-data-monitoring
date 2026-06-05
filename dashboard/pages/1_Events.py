@@ -10,6 +10,7 @@ from db import (
     insert_events,
     insert_sensor_association_events,
     link_cell_experiment,
+    load_cell_types,
     load_cells,
     load_experiments,
     load_groups,
@@ -111,6 +112,13 @@ def _experiment_options():
     options = {"(none)": None}
     for experiment_id, name in load_experiments():
         options[name] = experiment_id
+    return options
+
+
+def _cell_type_options():
+    options = {"(none)": None}
+    for type_id, code in load_cell_types():
+        options[code] = type_id
     return options
 
 
@@ -228,6 +236,7 @@ def _render_setup_tab():
     scientist_options = _scientist_options()
     group_options = _group_options()
     experiment_options = _experiment_options()
+    cell_type_options = _cell_type_options()
 
     _render_batch_builder(existing_cells, _add_setup_rows, "setup")
 
@@ -488,6 +497,10 @@ def _render_setup_tab():
                             f"setup_meta_experiment_{index}", "(none)"
                         )
                         != "(none)"
+                        or st.session_state.get(
+                            f"setup_meta_cell_type_{index}", "(none)"
+                        )
+                        != "(none)"
                     )
                     with st.popover("📋✓" if _has_meta else "📋"):
                         st.caption(f"Metadata for **{row['cell_name']}**")
@@ -523,6 +536,11 @@ def _render_setup_tab():
                             "Experiment",
                             list(experiment_options.keys()),
                             key=f"setup_meta_experiment_{index}",
+                        )
+                        st.selectbox(
+                            "Cell type",
+                            list(cell_type_options.keys()),
+                            key=f"setup_meta_cell_type_{index}",
                         )
 
             with c_delete:
@@ -596,6 +614,9 @@ def _render_setup_tab():
                     "experiment_id": experiment_options.get(
                         st.session_state.get(f"setup_meta_experiment_{i}", "(none)")
                     ),
+                    "cell_type_id": cell_type_options.get(
+                        st.session_state.get(f"setup_meta_cell_type_{i}", "(none)")
+                    ),
                 }
             )
 
@@ -618,6 +639,7 @@ def _render_setup_tab():
                             meta["group_id"],
                             meta["position"],
                             meta["nomad_url"],
+                            meta["cell_type_id"],
                         )
                     if meta["experiment_id"] is not None:
                         link_cell_experiment(cell_id, meta["experiment_id"])
