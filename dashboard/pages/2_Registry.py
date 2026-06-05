@@ -8,6 +8,7 @@ from db import (
     link_cell_experiment,
     link_experiment_project,
     load_cell_by_id,
+    load_cell_types,
     load_cells,
     load_cells_full,
     load_experiment_cells,
@@ -51,6 +52,20 @@ def _group_options():
     options = {"(standalone)": None}
     for group_id, name, group_code in load_groups():
         options[f"{name} [{group_code}]"] = group_id
+    return options
+
+
+def _cell_type_options():
+    options = {"(none)": None}
+    for type_id, code in load_cell_types():
+        options[code] = type_id
+    return options
+
+
+def _experiment_options():
+    options = {"(none)": None}
+    for experiment_id, name in load_experiments():
+        options[name] = experiment_id
     return options
 
 
@@ -134,14 +149,30 @@ def _render_cells_tab():
 
     scientist_options = _scientist_options()
     group_options = _group_options()
+    cell_type_options = _cell_type_options()
+    experiment_options = _experiment_options()
+    cell_type_label = st.selectbox(
+        "Cell type", list(cell_type_options.keys()), key="reg_cells_cell_type"
+    )
     area_text = st.text_input(
         "Area (cm²)", placeholder="e.g. 0.16", key="reg_cells_area"
+    )
+    pce_text = st.text_input(
+        "Initial PCE (%)", placeholder="e.g. 18.5", key="reg_cells_pce"
+    )
+    structure = st.text_input(
+        "Structure",
+        placeholder="e.g. ITO/NiOx/Pero/C60/BCP/Ag",
+        key="reg_cells_structure",
+    )
+    owner_label = st.selectbox(
+        "Owner", list(scientist_options.keys()), key="reg_cells_owner"
     )
     mfr_label = st.selectbox(
         "Manufacturer", list(scientist_options.keys()), key="reg_cells_mfr"
     )
-    owner_label = st.selectbox(
-        "Owner", list(scientist_options.keys()), key="reg_cells_owner"
+    experiment_label = st.selectbox(
+        "Experiment", list(experiment_options.keys()), key="reg_cells_experiment"
     )
     group_label = st.selectbox(
         "Group", list(group_options.keys()), key="reg_cells_group"
@@ -185,6 +216,11 @@ def _render_cells_tab():
         except ValueError:
             errors.append("Area must be a valid number.")
             area_cm2 = None
+        try:
+            initial_pce = _parse_optional_float(pce_text) if pce_text else None
+        except ValueError:
+            errors.append("Initial PCE must be a valid number.")
+            initial_pce = None
 
         if len({row["name"] for row in st.session_state.registry_cell_batch}) != len(
             st.session_state.registry_cell_batch
@@ -203,14 +239,20 @@ def _render_cells_tab():
                     if row["exists"]:
                         errors.append(f"{row['name']}: already exists.")
                         continue
-                    insert_cell(
+                    cell_id = insert_cell(
                         row["name"],
                         area_cm2,
                         scientist_options[mfr_label],
                         scientist_options[owner_label],
                         group_options[group_label],
                         position.strip() or None,
+                        cell_type_options[cell_type_label],
+                        structure.strip() or None,
+                        initial_pce,
                     )
+                    experiment_id = experiment_options[experiment_label]
+                    if experiment_id is not None:
+                        link_cell_experiment(cell_id, experiment_id)
                     inserted += 1
                 if errors:
                     for error in errors:
@@ -236,8 +278,11 @@ def _render_cells_tab():
 
         scientist_options = _scientist_options()
         group_options = _group_options()
+        cell_type_options = _cell_type_options()
+        experiment_options = _experiment_options()
         scientist_labels = list(scientist_options.keys())
         group_labels = list(group_options.keys())
+        cell_type_labels = list(cell_type_options.keys())
 
         current_mfr = next(
             (
@@ -263,12 +308,43 @@ def _render_cells_tab():
             ),
             "(standalone)",
         )
+        current_cell_type = next(
+            (
+                label
+                for label, type_id in cell_type_options.items()
+                if type_id == cell_data["cell_type_id"]
+            ),
+            "(none)",
+        )
 
         st.caption(f"Cell name: {cell_data['name']}")
+        edit_cell_type = st.selectbox(
+            "Cell type",
+            cell_type_labels,
+            index=cell_type_labels.index(current_cell_type),
+            key=f"edit_cell_type_{cell_data['id']}",
+        )
         edit_area = st.text_input(
             "Area (cm²)",
             value="" if cell_data["area_cm2"] is None else str(cell_data["area_cm2"]),
             key=f"edit_area_{cell_data['id']}",
+        )
+        edit_pce = st.text_input(
+            "Initial PCE (%)",
+            value="" if cell_data["initial_pce"] is None else str(cell_data["initial_pce"]),
+            key=f"edit_pce_{cell_data['id']}",
+        )
+        edit_structure = st.text_input(
+            "Structure",
+            value=cell_data["structure"] or "",
+            placeholder="e.g. ITO/NiOx/Pero/C60/BCP/Ag",
+            key=f"edit_structure_{cell_data['id']}",
+        )
+        edit_owner = st.selectbox(
+            "Owner",
+            scientist_labels,
+            index=scientist_labels.index(current_owner),
+            key=f"edit_owner_{cell_data['id']}",
         )
         edit_mfr = st.selectbox(
             "Manufacturer",
@@ -276,11 +352,10 @@ def _render_cells_tab():
             index=scientist_labels.index(current_mfr),
             key=f"edit_mfr_{cell_data['id']}",
         )
-        edit_owner = st.selectbox(
-            "Owner",
-            scientist_labels,
-            index=scientist_labels.index(current_owner),
-            key=f"edit_owner_{cell_data['id']}",
+        edit_experiment = st.selectbox(
+            "Link experiment",
+            list(experiment_options.keys()),
+            key=f"edit_experiment_{cell_data['id']}",
         )
         edit_group = st.selectbox(
             "Group",
@@ -302,6 +377,7 @@ def _render_cells_tab():
         if st.button("Update cell", key=f"update_cell_{cell_data['id']}"):
             try:
                 area_cm2 = _parse_optional_float(edit_area) if edit_area else None
+                initial_pce = _parse_optional_float(edit_pce) if edit_pce else None
                 update_cell_metadata(
                     cell_data["id"],
                     area_cm2,
@@ -310,11 +386,17 @@ def _render_cells_tab():
                     group_options[edit_group],
                     edit_position.strip() or None,
                     edit_nomad_url.strip() or None,
+                    cell_type_options[edit_cell_type],
+                    edit_structure.strip() or None,
+                    initial_pce,
                 )
+                experiment_id = experiment_options[edit_experiment]
+                if experiment_id is not None:
+                    link_cell_experiment(cell_data["id"], experiment_id)
                 st.success("Cell updated.")
                 _clear_and_rerun()
             except ValueError:
-                st.error("Area must be a valid number.")
+                st.error("Area or Initial PCE must be a valid number.")
             except Exception as exc:
                 st.error(f"Database error: {exc}")
 
