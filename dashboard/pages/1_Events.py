@@ -9,7 +9,9 @@ from db import (
     ensure_cell,
     insert_events,
     insert_sensor_association_events,
+    link_cell_experiment,
     load_cells,
+    load_experiments,
     load_groups,
     load_modes,
     load_scientists,
@@ -102,6 +104,13 @@ def _group_options():
     options = {"(standalone)": None}
     for group_id, name, group_code in load_groups():
         options[f"{name} [{group_code}]"] = group_id
+    return options
+
+
+def _experiment_options():
+    options = {"(none)": None}
+    for experiment_id, name in load_experiments():
+        options[name] = experiment_id
     return options
 
 
@@ -218,6 +227,7 @@ def _render_setup_tab():
 
     scientist_options = _scientist_options()
     group_options = _group_options()
+    experiment_options = _experiment_options()
 
     _render_batch_builder(existing_cells, _add_setup_rows, "setup")
 
@@ -474,6 +484,10 @@ def _render_setup_tab():
                                 f"setup_meta_nomad_{index}", ""
                             ).strip()
                         )
+                        or st.session_state.get(
+                            f"setup_meta_experiment_{index}", "(none)"
+                        )
+                        != "(none)"
                     )
                     with st.popover("📋✓" if _has_meta else "📋"):
                         st.caption(f"Metadata for **{row['cell_name']}**")
@@ -504,6 +518,11 @@ def _render_setup_tab():
                         )
                         st.text_input(
                             "NOMAD entry URL", key=f"setup_meta_nomad_{index}"
+                        )
+                        st.selectbox(
+                            "Experiment",
+                            list(experiment_options.keys()),
+                            key=f"setup_meta_experiment_{index}",
                         )
 
             with c_delete:
@@ -574,6 +593,9 @@ def _render_setup_tab():
                         f"setup_meta_nomad_{i}", ""
                     ).strip()
                     or None,
+                    "experiment_id": experiment_options.get(
+                        st.session_state.get(f"setup_meta_experiment_{i}", "(none)")
+                    ),
                 }
             )
 
@@ -597,6 +619,8 @@ def _render_setup_tab():
                             meta["position"],
                             meta["nomad_url"],
                         )
+                    if meta["experiment_id"] is not None:
+                        link_cell_experiment(cell_id, meta["experiment_id"])
 
                 if row["slot_id"] is not None:
                     db_rows_mpp.append(
