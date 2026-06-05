@@ -257,6 +257,82 @@ def load_sensors():
         return cur.fetchall()
 
 
+@st.cache_data(ttl=30)
+def load_sensors_full():
+    with (
+        get_connection() as conn,
+        conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur,
+    ):
+        cur.execute(
+            """
+            SELECT
+                s.id,
+                s.sensor_type,
+                COALESCE(ts.name, ir.name, sp.name) AS name,
+                COALESCE(ts.model, ir.model, sp.instrument) AS model,
+                COALESCE(ts.serial_number, ir.serial_number, sp.serial_number) AS serial_number,
+                COALESCE(ts.location, ir.location, sp.location) AS location
+            FROM sensor s
+            LEFT JOIN temperature_sensor ts ON ts.id = s.id
+            LEFT JOIN irradiance_sensor ir ON ir.id = s.id
+            LEFT JOIN spectral_sensor sp ON sp.id = s.id
+            ORDER BY s.sensor_type, name, s.id
+            """
+        )
+        return [dict(row) for row in cur.fetchall()]
+
+
+def insert_temperature_sensor(name, model, serial_number, location):
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO sensor (sensor_type) VALUES ('temperature') RETURNING id"
+        )
+        sensor_id = cur.fetchone()[0]
+        cur.execute(
+            """
+            INSERT INTO temperature_sensor (id, name, model, serial_number, location)
+            VALUES (%s, %s, %s, %s, %s)
+            """,
+            (sensor_id, name.strip(), model.strip() or None, serial_number.strip() or None, location.strip() or None),
+        )
+        conn.commit()
+        return sensor_id
+
+
+def insert_irradiance_sensor(name, model, serial_number, location):
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO sensor (sensor_type) VALUES ('irradiance') RETURNING id"
+        )
+        sensor_id = cur.fetchone()[0]
+        cur.execute(
+            """
+            INSERT INTO irradiance_sensor (id, name, model, serial_number, location)
+            VALUES (%s, %s, %s, %s, %s)
+            """,
+            (sensor_id, name.strip(), model.strip() or None, serial_number.strip() or None, location.strip() or None),
+        )
+        conn.commit()
+        return sensor_id
+
+
+def insert_spectral_sensor(name, model, serial_number, wavelengths_nm, location):
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO sensor (sensor_type) VALUES ('spectral') RETURNING id"
+        )
+        sensor_id = cur.fetchone()[0]
+        cur.execute(
+            """
+            INSERT INTO spectral_sensor (id, name, instrument, serial_number, wavelengths_nm, location)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            """,
+            (sensor_id, name.strip(), model.strip() or None, serial_number.strip() or None, wavelengths_nm, location.strip() or None),
+        )
+        conn.commit()
+        return sensor_id
+
+
 def load_experiment_cells(experiment_id):
     with get_connection() as conn, conn.cursor() as cur:
         cur.execute(
