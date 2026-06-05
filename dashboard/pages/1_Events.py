@@ -199,7 +199,12 @@ def _render_batch_builder(existing_cells, add_callback, prefix):
                 lines.append(f'<span style="opacity:0.65">+ {name}</span>')
         st.markdown("<br>".join(lines), unsafe_allow_html=True)
         if has_suffixes and not cell_name.strip().endswith("_px"):
-            st.caption("💡 Pixel batches should use a `_px` base name — e.g. `SUB003_px`")
+            st.markdown(
+                '<p style="color:#f0a500; font-size:0.85em; margin-top:0.25rem">'
+                "💡 Pixel batches should use a <code>_px</code> base name — e.g. <code>SUB003_px</code>"
+                "</p>",
+                unsafe_allow_html=True,
+            )
 
 
 def _render_cell_picker(existing_cells, add_callback, prefix):
@@ -525,6 +530,11 @@ def _render_setup_tab():
                             f"setup_meta_cell_type_{index}", "(none)"
                         )
                         != "(none)"
+                        or bool(
+                            st.session_state.get(
+                                f"setup_meta_structure_{index}", ""
+                            ).strip()
+                        )
                     )
                     with st.popover("📋✓" if _has_meta else "📋"):
                         st.caption(f"Metadata for **{row['cell_name']}**")
@@ -565,6 +575,11 @@ def _render_setup_tab():
                             "Cell type",
                             list(cell_type_options.keys()),
                             key=f"setup_meta_cell_type_{index}",
+                        )
+                        st.text_input(
+                            "Structure",
+                            placeholder="e.g. ITO/NiOx/Pero/C60/BCP/Ag",
+                            key=f"setup_meta_structure_{index}",
                         )
 
             with c_delete:
@@ -641,6 +656,10 @@ def _render_setup_tab():
                     "cell_type_id": cell_type_options.get(
                         st.session_state.get(f"setup_meta_cell_type_{i}", "(none)")
                     ),
+                    "structure": st.session_state.get(
+                        f"setup_meta_structure_{i}", ""
+                    ).strip()
+                    or None,
                 }
             )
 
@@ -664,6 +683,7 @@ def _render_setup_tab():
                             meta["position"],
                             meta["nomad_url"],
                             meta["cell_type_id"],
+                            meta["structure"],
                         )
                     if meta["experiment_id"] is not None:
                         link_cell_experiment(cell_id, meta["experiment_id"])
