@@ -5,6 +5,9 @@ from db import (
     cells_exist,
     insert_cell,
     insert_group,
+    insert_irradiance_sensor,
+    insert_spectral_sensor,
+    insert_temperature_sensor,
     link_cell_experiment,
     link_experiment_project,
     load_cell_by_id,
@@ -19,6 +22,7 @@ from db import (
     load_groups_full,
     load_projects,
     load_scientists,
+    load_sensors_full,
     update_cell_metadata,
     update_group_cell_id,
     upsert_experiment,
@@ -581,10 +585,72 @@ def _render_experiments_tab():
                     st.error(f"Database error: {exc}")
 
 
+def _render_sensors_tab():
+    col_form, col_table = st.columns([1, 1])
+
+    with col_form:
+        st.subheader("Register sensor")
+        sensor_type = st.selectbox(
+            "Sensor type",
+            ["temperature", "irradiance", "spectral"],
+            key="sensor_type",
+        )
+        sensor_name = st.text_input("Name", key="sensor_name")
+        serial_number = st.text_input("Serial number", key="sensor_serial")
+        location = st.text_input("Location", key="sensor_location")
+
+        model = ""
+        instrument = ""
+        wavelengths_raw = ""
+
+        if sensor_type in ("temperature", "irradiance"):
+            model = st.text_input("Model", key="sensor_model")
+        elif sensor_type == "spectral":
+            instrument = st.text_input("Instrument", key="sensor_instrument")
+            wavelengths_raw = st.text_input(
+                "Wavelengths (nm, comma-separated)",
+                placeholder="e.g. 300,350,400,...",
+                key="sensor_wavelengths",
+            )
+
+        if st.button("Register sensor", key="register_sensor"):
+            if not sensor_name.strip():
+                st.error("Name is required.")
+            else:
+                try:
+                    if sensor_type == "temperature":
+                        sensor_id = insert_temperature_sensor(sensor_name, model, serial_number, location)
+                    elif sensor_type == "irradiance":
+                        sensor_id = insert_irradiance_sensor(sensor_name, model, serial_number, location)
+                    else:
+                        try:
+                            wavelengths = [
+                                float(w.strip())
+                                for w in wavelengths_raw.split(",")
+                                if w.strip()
+                            ]
+                        except ValueError:
+                            st.error("Wavelengths must be comma-separated numbers.")
+                            wavelengths = None
+                        if wavelengths is not None:
+                            sensor_id = insert_spectral_sensor(sensor_name, instrument, serial_number, wavelengths, location)
+                        else:
+                            sensor_id = None
+                    if sensor_id is not None:
+                        st.success(f"Sensor registered with id {sensor_id}.")
+                        _clear_and_rerun()
+                except Exception as exc:
+                    st.error(f"Database error: {exc}")
+
+    with col_table:
+        st.subheader("Sensors")
+        st.dataframe(load_sensors_full(), use_container_width=True)
+
+
 _ensure_state()
 
-tab_scientists, tab_cells, tab_groups, tab_experiments = st.tabs(
-    ["Scientists", "Cells", "Groups", "Experiments"]
+tab_scientists, tab_cells, tab_groups, tab_experiments, tab_sensors = st.tabs(
+    ["Scientists", "Cells", "Groups", "Experiments", "Sensors"]
 )
 
 with tab_scientists:
@@ -598,3 +664,6 @@ with tab_groups:
 
 with tab_experiments:
     _render_experiments_tab()
+
+with tab_sensors:
+    _render_sensors_tab()
