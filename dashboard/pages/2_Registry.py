@@ -24,7 +24,10 @@ from db import (
     load_scientists,
     load_sensors_full,
     update_cell_metadata,
+    update_experiment,
+    update_group,
     update_group_cell_id,
+    update_scientist,
     upsert_experiment,
     upsert_project,
     upsert_scientist,
@@ -120,6 +123,37 @@ def _render_scientists_tab():
                 _clear_and_rerun()
             except Exception as exc:
                 st.error(f"Database error: {exc}")
+
+        st.divider()
+        st.subheader("Edit existing scientist")
+        scientists = load_scientists()
+        if not scientists:
+            st.info("No scientists registered yet.")
+        else:
+            scientist_labels = {
+                (row[1] if not row[2] else f"{row[1]} ({row[2]})"): (row[0], row[1], row[2])
+                for row in scientists
+            }
+            selected_scientist = st.selectbox(
+                "Select scientist", list(scientist_labels.keys()), key="edit_scientist_select"
+            )
+            sci_id, sci_name, sci_affiliation = scientist_labels[selected_scientist]
+            edit_sci_name = st.text_input(
+                "Name", value=sci_name, key=f"edit_sci_name_{sci_id}"
+            )
+            edit_sci_affiliation = st.text_input(
+                "Affiliation", value=sci_affiliation or "", key=f"edit_sci_affiliation_{sci_id}"
+            )
+            if st.button("Update scientist", key=f"update_scientist_{sci_id}"):
+                if not edit_sci_name.strip():
+                    st.error("Name is required.")
+                else:
+                    try:
+                        update_scientist(sci_id, edit_sci_name, edit_sci_affiliation)
+                        st.success("Scientist updated.")
+                        _clear_and_rerun()
+                    except Exception as exc:
+                        st.error(f"Database error: {exc}")
 
     with col_table:
         st.subheader("Scientists")
@@ -470,6 +504,64 @@ def _render_groups_tab():
         st.subheader("Groups")
         st.dataframe(load_groups_full(), use_container_width=True)
 
+    st.divider()
+    st.subheader("Edit existing group")
+    groups_full = load_groups_full()
+    if not groups_full:
+        st.info("No groups registered yet.")
+    else:
+        group_edit_labels = {row["name"]: row for row in groups_full}
+        selected_group_name = st.selectbox(
+            "Select group", list(group_edit_labels.keys()), key="edit_group_select"
+        )
+        grp = group_edit_labels[selected_group_name]
+        st.caption(f"Group type: {grp['group_type']} (not editable)")
+
+        edit_grp_name = st.text_input(
+            "Name", value=grp["name"], key=f"edit_grp_name_{grp['id']}"
+        )
+        edit_grp_has_date = st.checkbox(
+            "Set fabrication date",
+            value=grp["fabrication_date"] is not None,
+            key=f"edit_grp_has_date_{grp['id']}",
+        )
+        edit_grp_date = None
+        if edit_grp_has_date:
+            import datetime
+            default_date = grp["fabrication_date"] if grp["fabrication_date"] else datetime.date.today()
+            edit_grp_date = st.date_input(
+                "Fabrication date", value=default_date, key=f"edit_grp_date_{grp['id']}"
+            )
+
+        scientist_options_grp = _scientist_options()
+        scientist_labels_grp = list(scientist_options_grp.keys())
+        current_grp_mfr = grp["manufacturer"] if grp["manufacturer"] in scientist_options_grp else "(none)"
+        edit_grp_mfr = st.selectbox(
+            "Manufacturer",
+            scientist_labels_grp,
+            index=scientist_labels_grp.index(current_grp_mfr),
+            key=f"edit_grp_mfr_{grp['id']}",
+        )
+        edit_grp_notes = st.text_area(
+            "Notes", value=grp["notes"] or "", key=f"edit_grp_notes_{grp['id']}"
+        )
+        if st.button("Update group", key=f"update_group_{grp['id']}"):
+            if not edit_grp_name.strip():
+                st.error("Name is required.")
+            else:
+                try:
+                    update_group(
+                        grp["id"],
+                        edit_grp_name,
+                        edit_grp_date,
+                        scientist_options_grp[edit_grp_mfr],
+                        edit_grp_notes.strip() or None,
+                    )
+                    st.success("Group updated.")
+                    _clear_and_rerun()
+                except Exception as exc:
+                    st.error(f"Database error: {exc}")
+
 
 def _render_experiments_tab():
     tab_projects, tab_experiments, tab_assignments = st.tabs(
@@ -516,6 +608,31 @@ def _render_experiments_tab():
                     st.error(f"Database error: {exc}")
         with col_table:
             st.dataframe(load_experiments_with_projects(), use_container_width=True)
+
+        st.divider()
+        st.subheader("Edit existing experiment")
+        experiments_list = load_experiments()
+        if not experiments_list:
+            st.info("No experiments registered yet.")
+        else:
+            exp_edit_options = {exp_name: exp_id for exp_id, exp_name in experiments_list}
+            selected_exp_edit = st.selectbox(
+                "Select experiment", list(exp_edit_options.keys()), key="edit_experiment_select"
+            )
+            exp_edit_id = exp_edit_options[selected_exp_edit]
+            edit_exp_name = st.text_input(
+                "Name", value=selected_exp_edit, key=f"edit_exp_name_{exp_edit_id}"
+            )
+            if st.button("Update experiment", key=f"update_experiment_{exp_edit_id}"):
+                if not edit_exp_name.strip():
+                    st.error("Name is required.")
+                else:
+                    try:
+                        update_experiment(exp_edit_id, edit_exp_name)
+                        st.success("Experiment updated.")
+                        _clear_and_rerun()
+                    except Exception as exc:
+                        st.error(f"Database error: {exc}")
 
     with tab_assignments:
         experiments = load_experiments()

@@ -463,6 +463,40 @@ def insert_events(rows):
         conn.commit()
 
 
+def update_scientist(scientist_id, name, affiliation):
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "UPDATE scientist SET name = %s, affiliation = %s WHERE id = %s",
+            (name.strip(), (affiliation or "").strip(), scientist_id),
+        )
+        conn.commit()
+
+
+def update_group(group_id, name, fabrication_date, manufacturer_id, notes):
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            UPDATE solar_cell_group
+            SET name = %s,
+                fabrication_date = %s,
+                manufacturer_id = %s,
+                notes = %s
+            WHERE id = %s
+            """,
+            (name.strip(), fabrication_date, manufacturer_id, notes or None, group_id),
+        )
+        conn.commit()
+
+
+def update_experiment(experiment_id, name):
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "UPDATE experiment SET name = %s WHERE id = %s",
+            (name.strip(), experiment_id),
+        )
+        conn.commit()
+
+
 def upsert_scientist(name, affiliation):
     scientist_name = name.strip()
     scientist_affiliation = (affiliation or "").strip()
