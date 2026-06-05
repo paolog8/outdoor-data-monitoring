@@ -434,16 +434,19 @@ def cells_exist(names):
 
 
 def tracker_status_snapshot(tracker_id):
-    with get_connection() as conn, conn.cursor() as cur:
+    with (
+        get_connection() as conn,
+        conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur,
+    ):
         cur.execute("SELECT name FROM mpp_tracker WHERE id = %s", (tracker_id,))
         row = cur.fetchone()
         if row is None:
             return []
         cur.execute(
-            "SELECT slot_code, is_connected, cell_name, mode_code, connected_since FROM mpp_tracker_status(%s)",
-            (row[0],),
+            "SELECT slot_code, is_connected, cell_name, mode_code, connected_since, polarity_code FROM mpp_tracker_status(%s)",
+            (row["name"],),
         )
-        return cur.fetchall()
+        return [dict(r) for r in cur.fetchall()]
 
 
 def ensure_cell(name):
