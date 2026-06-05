@@ -535,13 +535,38 @@ def _render_setup_tab():
                                 f"setup_meta_structure_{index}", ""
                             ).strip()
                         )
+                        or bool(
+                            st.session_state.get(
+                                f"setup_meta_pce_{index}", ""
+                            ).strip()
+                        )
                     )
                     with st.popover("📋✓" if _has_meta else "📋"):
                         st.caption(f"Metadata for **{row['cell_name']}**")
+                        st.selectbox(
+                            "Cell type",
+                            list(cell_type_options.keys()),
+                            key=f"setup_meta_cell_type_{index}",
+                        )
                         st.text_input(
                             "Area (cm²)",
                             placeholder="e.g. 0.16",
                             key=f"setup_meta_area_{index}",
+                        )
+                        st.text_input(
+                            "Initial PCE (%)",
+                            placeholder="e.g. 18.5",
+                            key=f"setup_meta_pce_{index}",
+                        )
+                        st.text_input(
+                            "Structure",
+                            placeholder="e.g. ITO/NiOx/Pero/C60/BCP/Ag",
+                            key=f"setup_meta_structure_{index}",
+                        )
+                        st.selectbox(
+                            "Owner",
+                            list(scientist_options.keys()),
+                            key=f"setup_meta_owner_{index}",
                         )
                         st.selectbox(
                             "Manufacturer",
@@ -549,9 +574,9 @@ def _render_setup_tab():
                             key=f"setup_meta_manufacturer_{index}",
                         )
                         st.selectbox(
-                            "Owner",
-                            list(scientist_options.keys()),
-                            key=f"setup_meta_owner_{index}",
+                            "Experiment",
+                            list(experiment_options.keys()),
+                            key=f"setup_meta_experiment_{index}",
                         )
                         st.selectbox(
                             "Group",
@@ -565,21 +590,6 @@ def _render_setup_tab():
                         )
                         st.text_input(
                             "NOMAD entry URL", key=f"setup_meta_nomad_{index}"
-                        )
-                        st.selectbox(
-                            "Experiment",
-                            list(experiment_options.keys()),
-                            key=f"setup_meta_experiment_{index}",
-                        )
-                        st.selectbox(
-                            "Cell type",
-                            list(cell_type_options.keys()),
-                            key=f"setup_meta_cell_type_{index}",
-                        )
-                        st.text_input(
-                            "Structure",
-                            placeholder="e.g. ITO/NiOx/Pero/C60/BCP/Ag",
-                            key=f"setup_meta_structure_{index}",
                         )
 
             with c_delete:
@@ -630,6 +640,14 @@ def _render_setup_tab():
             except ValueError:
                 errors.append(f"{row['cell_name']}: area must be a valid number.")
                 area_cm2 = None
+            pce_text = st.session_state.get(f"setup_meta_pce_{i}", "")
+            try:
+                initial_pce = (
+                    _parse_optional_float(pce_text) if pce_text.strip() else None
+                )
+            except ValueError:
+                errors.append(f"{row['cell_name']}: initial PCE must be a valid number.")
+                initial_pce = None
             row_meta.append(
                 {
                     "area_cm2": area_cm2,
@@ -660,6 +678,7 @@ def _render_setup_tab():
                         f"setup_meta_structure_{i}", ""
                     ).strip()
                     or None,
+                    "initial_pce": initial_pce,
                 }
             )
 
@@ -684,6 +703,7 @@ def _render_setup_tab():
                             meta["nomad_url"],
                             meta["cell_type_id"],
                             meta["structure"],
+                            meta["initial_pce"],
                         )
                     if meta["experiment_id"] is not None:
                         link_cell_experiment(cell_id, meta["experiment_id"])

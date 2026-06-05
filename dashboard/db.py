@@ -446,7 +446,7 @@ def insert_cell(name, area_cm2, manufacturer_id, owner_id, group_id, position_in
 
 def update_cell_metadata(
     cell_id, area_cm2, manufacturer_id, owner_id, group_id, position_in_group,
-    nomad_entry_url=None, cell_type_id=None, structure=None,
+    nomad_entry_url=None, cell_type_id=None, structure=None, initial_pce=None,
 ):
     with get_connection() as conn, conn.cursor() as cur:
         cur.execute(
@@ -459,7 +459,8 @@ def update_cell_metadata(
                 position_in_group = %s,
                 nomad_entry_url = %s,
                 cell_type_id = %s,
-                structure = %s
+                structure = %s,
+                initial_pce = %s
             WHERE id = %s
             """,
             (
@@ -471,6 +472,7 @@ def update_cell_metadata(
                 nomad_entry_url or None,
                 cell_type_id,
                 structure or None,
+                initial_pce,
                 cell_id,
             ),
         )
