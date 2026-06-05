@@ -60,6 +60,12 @@ services:
       - ./symmetricds/engines:/opt/symmetric-ds/engines
     ports:
       - "31415:31415"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:31415/ > /dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 90s
     depends_on:
       postgres:
         condition: service_healthy
