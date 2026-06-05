@@ -233,8 +233,6 @@ def _render_cell_picker(existing_cells, add_callback, prefix):
 
 
 def _render_setup_tab():
-    event_date = _render_date_picker("setup")
-    st.divider()
     existing_cells = load_cells()
     existing_names = {name for _, name in existing_cells}
     sensors = load_sensors()
@@ -333,26 +331,28 @@ def _render_setup_tab():
         mode_id_by_code = {mode_code: mode_id for mode_id, mode_code in modes}
 
         if use_board_channel:
-            header = st.columns([3, 1, 2, 2, 2, 3, 1, 1, 1])
+            header = st.columns([3, 2, 1, 2, 2, 2, 3, 1, 1, 1])
             header[0].markdown("**Cell name**")
-            header[1].markdown("**Board**")
-            header[2].markdown("**Ch**")
+            header[1].markdown("**Connect date**")
+            header[2].markdown("**Board**")
+            header[3].markdown("**Ch**")
+            header[4].markdown("**Mode**")
+            header[5].markdown("**Polarity**")
+            header[6].markdown("**Sensors**")
+            header[7].markdown("**Metadata**")
+            header[8].markdown("**Disc.**")
+            header[9].markdown("")
+        else:
+            header = st.columns([3, 2, 2, 2, 2, 3, 1, 1, 1])
+            header[0].markdown("**Cell name**")
+            header[1].markdown("**Connect date**")
+            header[2].markdown("**Slot**")
             header[3].markdown("**Mode**")
             header[4].markdown("**Polarity**")
             header[5].markdown("**Sensors**")
             header[6].markdown("**Metadata**")
             header[7].markdown("**Disc.**")
             header[8].markdown("")
-        else:
-            header = st.columns([3, 2, 2, 2, 3, 1, 1, 1])
-            header[0].markdown("**Cell name**")
-            header[1].markdown("**Slot**")
-            header[2].markdown("**Mode**")
-            header[3].markdown("**Polarity**")
-            header[4].markdown("**Sensors**")
-            header[5].markdown("**Metadata**")
-            header[6].markdown("**Disc.**")
-            header[7].markdown("")
 
         rows_to_remove = []
         board_options = ["-"] + [str(board) for board in boards]
@@ -361,12 +361,12 @@ def _render_setup_tab():
 
         for index, row in enumerate(st.session_state.setup):
             if use_board_channel:
-                c_name, c_board, c_channel, c_mode, c_polarity, c_sensors, c_meta, c_disconnect, c_delete = (
-                    st.columns([3, 1, 2, 2, 2, 3, 1, 1, 1])
+                c_name, c_date, c_board, c_channel, c_mode, c_polarity, c_sensors, c_meta, c_disconnect, c_delete = (
+                    st.columns([3, 2, 1, 2, 2, 2, 3, 1, 1, 1])
                 )
             else:
-                c_name, c_slot, c_mode, c_polarity, c_sensors, c_meta, c_disconnect, c_delete = st.columns(
-                    [3, 2, 2, 2, 3, 1, 1, 1]
+                c_name, c_date, c_slot, c_mode, c_polarity, c_sensors, c_meta, c_disconnect, c_delete = st.columns(
+                    [3, 2, 2, 2, 2, 3, 1, 1, 1]
                 )
 
             with c_name:
@@ -380,6 +380,14 @@ def _render_setup_tab():
                 row["is_new"] = bool(new_name) and new_name not in existing_names
                 if row["is_new"]:
                     st.caption("New cell")
+
+            with c_date:
+                st.date_input(
+                    "connect date",
+                    value=date.today(),
+                    key=f"setup_date_{index}",
+                    label_visibility="collapsed",
+                )
 
             if use_board_channel:
                 current_board_channel = parse_board_channel(row.get("slot_code", ""))
@@ -618,7 +626,7 @@ def _render_setup_tab():
     if st.button(
         "Submit setup events",
         type="primary",
-        disabled=not st.session_state.setup or event_date is None,
+        disabled=not st.session_state.setup,
     ):
         errors = []
         db_rows_mpp = []
@@ -639,12 +647,12 @@ def _render_setup_tab():
                 errors.append(
                     f"{cell_name}: no connection mode is available for a slot assignment."
                 )
+            connect_date = st.session_state.get(f"setup_date_{i}", date.today())
             disconnect_date = st.session_state.get(f"setup_disconnect_{i}")
-            if disconnect_date is not None and event_date is not None:
-                if disconnect_date < event_date:
-                    errors.append(
-                        f"{cell_name}: disconnect date must be on or after the connect date."
-                    )
+            if disconnect_date is not None and disconnect_date < connect_date:
+                errors.append(
+                    f"{cell_name}: disconnect date must be on or after the connect date."
+                )
 
         if len(names) != len(set(names)):
             errors.append("Setup rows contain duplicate cell names.")
@@ -727,6 +735,7 @@ def _render_setup_tab():
                     if meta["experiment_id"] is not None:
                         link_cell_experiment(cell_id, meta["experiment_id"])
 
+                connect_date = st.session_state.get(f"setup_date_{i}", date.today())
                 disconnect_date = st.session_state.get(f"setup_disconnect_{i}")
 
                 if row["slot_id"] is not None:
@@ -737,7 +746,7 @@ def _render_setup_tab():
                             "event_type": "connection",
                             "mode_id": row["mode_id"],
                             "polarity_id": row.get("polarity_id"),
-                            "occurred_at": to_timestamptz(event_date, "connection"),
+                            "occurred_at": to_timestamptz(connect_date, "connection"),
                         }
                     )
                     if disconnect_date is not None:
@@ -759,7 +768,7 @@ def _render_setup_tab():
                             "sensor_id": sensor_id,
                             "event_type": "association",
                             "specification": None,
-                            "occurred_at": to_timestamptz(event_date, "association"),
+                            "occurred_at": to_timestamptz(connect_date, "association"),
                         }
                     )
                     if disconnect_date is not None:
