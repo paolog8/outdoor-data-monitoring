@@ -1,4 +1,6 @@
-CREATE OR REPLACE FUNCTION mpp_tracker_status(
+DROP FUNCTION mpp_tracker_status(TEXT, TIMESTAMPTZ);
+
+CREATE FUNCTION mpp_tracker_status(
     p_tracker_name  TEXT,
     p_at            TIMESTAMPTZ DEFAULT NOW()
 )
