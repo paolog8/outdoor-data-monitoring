@@ -161,6 +161,13 @@ def load_group_types():
 
 
 @st.cache_data(ttl=30)
+def load_polarities():
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT id, code FROM mpp_polarity ORDER BY id")
+        return cur.fetchall()
+
+
+@st.cache_data(ttl=30)
 def load_cell_types():
     with get_connection() as conn, conn.cursor() as cur:
         cur.execute("SELECT id, code FROM solar_cell_type ORDER BY id")
@@ -358,8 +365,8 @@ def insert_events(rows):
             cur,
             """
             INSERT INTO mpp_connection_event
-                (event_type, mode_id, occurred_at, solar_cell_id, mpp_tracking_slot_id)
-            VALUES (%(event_type)s, %(mode_id)s, %(occurred_at)s, %(cell_id)s, %(slot_id)s)
+                (event_type, mode_id, polarity_id, occurred_at, solar_cell_id, mpp_tracking_slot_id)
+            VALUES (%(event_type)s, %(mode_id)s, %(polarity_id)s, %(occurred_at)s, %(cell_id)s, %(slot_id)s)
             """,
             rows,
         )

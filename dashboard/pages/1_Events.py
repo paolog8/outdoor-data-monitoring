@@ -13,6 +13,7 @@ from db import (
     load_cell_types,
     load_cells,
     load_experiments,
+    load_polarities,
     load_groups,
     load_modes,
     load_scientists,
@@ -119,6 +120,13 @@ def _cell_type_options():
     options = {"(none)": None}
     for type_id, code in load_cell_types():
         options[code] = type_id
+    return options
+
+
+def _polarity_options():
+    options = {"(none)": None}
+    for polarity_id, code in load_polarities():
+        options[code] = polarity_id
     return options
 
 
@@ -237,6 +245,8 @@ def _render_setup_tab():
     group_options = _group_options()
     experiment_options = _experiment_options()
     cell_type_options = _cell_type_options()
+    polarity_options = _polarity_options()
+    polarity_names = list(polarity_options.keys())
 
     _render_batch_builder(existing_cells, _add_setup_rows, "setup")
 
@@ -314,22 +324,24 @@ def _render_setup_tab():
         mode_id_by_code = {mode_code: mode_id for mode_id, mode_code in modes}
 
         if use_board_channel:
-            header = st.columns([3, 1, 2, 2, 3, 1, 1])
+            header = st.columns([3, 1, 2, 2, 2, 3, 1, 1])
             header[0].markdown("**Cell name**")
             header[1].markdown("**Board**")
             header[2].markdown("**Ch**")
             header[3].markdown("**Mode**")
-            header[4].markdown("**Sensors**")
-            header[5].markdown("**Metadata**")
-            header[6].markdown("")
+            header[4].markdown("**Polarity**")
+            header[5].markdown("**Sensors**")
+            header[6].markdown("**Metadata**")
+            header[7].markdown("")
         else:
-            header = st.columns([3, 2, 2, 3, 1, 1])
+            header = st.columns([3, 2, 2, 2, 3, 1, 1])
             header[0].markdown("**Cell name**")
             header[1].markdown("**Slot**")
             header[2].markdown("**Mode**")
-            header[3].markdown("**Sensors**")
-            header[4].markdown("**Metadata**")
-            header[5].markdown("")
+            header[3].markdown("**Polarity**")
+            header[4].markdown("**Sensors**")
+            header[5].markdown("**Metadata**")
+            header[6].markdown("")
 
         rows_to_remove = []
         board_options = ["-"] + [str(board) for board in boards]
@@ -338,12 +350,12 @@ def _render_setup_tab():
 
         for index, row in enumerate(st.session_state.setup):
             if use_board_channel:
-                c_name, c_board, c_channel, c_mode, c_sensors, c_meta, c_delete = (
-                    st.columns([3, 1, 2, 2, 3, 1, 1])
+                c_name, c_board, c_channel, c_mode, c_polarity, c_sensors, c_meta, c_delete = (
+                    st.columns([3, 1, 2, 2, 2, 3, 1, 1])
                 )
             else:
-                c_name, c_slot, c_mode, c_sensors, c_meta, c_delete = st.columns(
-                    [3, 2, 2, 3, 1, 1]
+                c_name, c_slot, c_mode, c_polarity, c_sensors, c_meta, c_delete = st.columns(
+                    [3, 2, 2, 2, 3, 1, 1]
                 )
 
             with c_name:
@@ -449,6 +461,15 @@ def _render_setup_tab():
                     row["mode_code"] = ""
                     row["mode_id"] = None
                     st.caption("No modes available")
+
+            with c_polarity:
+                selected_polarity = st.selectbox(
+                    "polarity",
+                    polarity_names,
+                    key=f"setup_polarity_{index}",
+                    label_visibility="collapsed",
+                )
+                row["polarity_id"] = polarity_options[selected_polarity]
 
             with c_sensors:
                 selected_sensor_labels = st.multiselect(
@@ -651,6 +672,7 @@ def _render_setup_tab():
                             "slot_id": row["slot_id"],
                             "event_type": "connection",
                             "mode_id": row["mode_id"],
+                            "polarity_id": row.get("polarity_id"),
                             "occurred_at": to_timestamptz(event_date, "connection"),
                         }
                     )
@@ -814,6 +836,7 @@ def _render_teardown_tab():
                             "slot_id": row["slot_id"],
                             "event_type": "disconnection",
                             "mode_id": None,
+                            "polarity_id": None,
                             "occurred_at": to_timestamptz(event_date, "disconnection"),
                         }
                     )
