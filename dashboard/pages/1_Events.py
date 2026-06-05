@@ -333,7 +333,7 @@ def _render_setup_tab():
         mode_id_by_code = {mode_code: mode_id for mode_id, mode_code in modes}
 
         if use_board_channel:
-            header = st.columns([3, 1, 2, 2, 2, 3, 1, 1])
+            header = st.columns([3, 1, 2, 2, 2, 3, 1, 1, 1])
             header[0].markdown("**Cell name**")
             header[1].markdown("**Board**")
             header[2].markdown("**Ch**")
@@ -341,16 +341,18 @@ def _render_setup_tab():
             header[4].markdown("**Polarity**")
             header[5].markdown("**Sensors**")
             header[6].markdown("**Metadata**")
-            header[7].markdown("")
+            header[7].markdown("**Disc.**")
+            header[8].markdown("")
         else:
-            header = st.columns([3, 2, 2, 2, 3, 1, 1])
+            header = st.columns([3, 2, 2, 2, 3, 1, 1, 1])
             header[0].markdown("**Cell name**")
             header[1].markdown("**Slot**")
             header[2].markdown("**Mode**")
             header[3].markdown("**Polarity**")
             header[4].markdown("**Sensors**")
             header[5].markdown("**Metadata**")
-            header[6].markdown("")
+            header[6].markdown("**Disc.**")
+            header[7].markdown("")
 
         rows_to_remove = []
         board_options = ["-"] + [str(board) for board in boards]
@@ -359,12 +361,12 @@ def _render_setup_tab():
 
         for index, row in enumerate(st.session_state.setup):
             if use_board_channel:
-                c_name, c_board, c_channel, c_mode, c_polarity, c_sensors, c_meta, c_delete = (
-                    st.columns([3, 1, 2, 2, 2, 3, 1, 1])
+                c_name, c_board, c_channel, c_mode, c_polarity, c_sensors, c_meta, c_disconnect, c_delete = (
+                    st.columns([3, 1, 2, 2, 2, 3, 1, 1, 1])
                 )
             else:
-                c_name, c_slot, c_mode, c_polarity, c_sensors, c_meta, c_delete = st.columns(
-                    [3, 2, 2, 2, 3, 1, 1]
+                c_name, c_slot, c_mode, c_polarity, c_sensors, c_meta, c_disconnect, c_delete = st.columns(
+                    [3, 2, 2, 2, 3, 1, 1, 1]
                 )
 
             with c_name:
@@ -593,6 +595,16 @@ def _render_setup_tab():
                             "NOMAD entry URL", key=f"setup_meta_nomad_{index}"
                         )
 
+            with c_disconnect:
+                _has_disconnect = st.session_state.get(f"setup_disconnect_{index}") is not None
+                with st.popover("↩✓" if _has_disconnect else "↩"):
+                    st.caption(f"Disconnect date for **{row['cell_name']}**")
+                    st.date_input(
+                        "Disconnect date (optional)",
+                        value=None,
+                        key=f"setup_disconnect_{index}",
+                    )
+
             with c_delete:
                 if st.button("✕", key=f"setup_delete_{index}"):
                     rows_to_remove.append(index)
@@ -613,7 +625,7 @@ def _render_setup_tab():
         db_rows_sensor = []
 
         names = []
-        for row in st.session_state.setup:
+        for i, row in enumerate(st.session_state.setup):
             cell_name = row["cell_name"].strip()
             if not cell_name:
                 errors.append("One or more setup rows have an empty cell name.")
@@ -627,6 +639,12 @@ def _render_setup_tab():
                 errors.append(
                     f"{cell_name}: no connection mode is available for a slot assignment."
                 )
+            disconnect_date = st.session_state.get(f"setup_disconnect_{i}")
+            if disconnect_date is not None and event_date is not None:
+                if disconnect_date < event_date:
+                    errors.append(
+                        f"{cell_name}: disconnect date must be on or after the connect date."
+                    )
 
         if len(names) != len(set(names)):
             errors.append("Setup rows contain duplicate cell names.")
@@ -709,6 +727,8 @@ def _render_setup_tab():
                     if meta["experiment_id"] is not None:
                         link_cell_experiment(cell_id, meta["experiment_id"])
 
+                disconnect_date = st.session_state.get(f"setup_disconnect_{i}")
+
                 if row["slot_id"] is not None:
                     db_rows_mpp.append(
                         {
@@ -720,6 +740,17 @@ def _render_setup_tab():
                             "occurred_at": to_timestamptz(event_date, "connection"),
                         }
                     )
+                    if disconnect_date is not None:
+                        db_rows_mpp.append(
+                            {
+                                "cell_id": cell_id,
+                                "slot_id": row["slot_id"],
+                                "event_type": "disconnection",
+                                "mode_id": None,
+                                "polarity_id": None,
+                                "occurred_at": to_timestamptz(disconnect_date, "disconnection"),
+                            }
+                        )
 
                 for sensor_id in row["sensor_ids"]:
                     db_rows_sensor.append(
@@ -731,12 +762,31 @@ def _render_setup_tab():
                             "occurred_at": to_timestamptz(event_date, "association"),
                         }
                     )
+                    if disconnect_date is not None:
+                        db_rows_sensor.append(
+                            {
+                                "cell_id": cell_id,
+                                "sensor_id": sensor_id,
+                                "event_type": "dissociation",
+                                "specification": None,
+                                "occurred_at": to_timestamptz(disconnect_date, "dissociation"),
+                            }
+                        )
 
             insert_events(db_rows_mpp)
             insert_sensor_association_events(db_rows_sensor)
-            st.success(
-                f"Inserted {len(db_rows_mpp)} MPP event(s) and {len(db_rows_sensor)} sensor event(s) for {len(st.session_state.setup)} cell(s)."
+            n_cells = len(st.session_state.setup)
+            n_disconnects = sum(
+                1 for i in range(n_cells)
+                if st.session_state.get(f"setup_disconnect_{i}") is not None
             )
+            msg = (
+                f"Inserted {len(db_rows_mpp)} MPP event(s) and "
+                f"{len(db_rows_sensor)} sensor event(s) for {n_cells} cell(s)."
+            )
+            if n_disconnects:
+                msg += f" ({n_disconnects} row(s) include disconnect/dissociate events.)"
+            st.success(msg)
             st.session_state.setup = []
             _clear_and_rerun()
         except Exception as exc:
