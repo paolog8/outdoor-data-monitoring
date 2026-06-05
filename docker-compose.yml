@@ -125,7 +125,7 @@ services:
       flyway:
         condition: service_completed_successfully
       symmetricds:
-        condition: service_healthy
+        condition: service_started
 
   dashboard:
     build:
