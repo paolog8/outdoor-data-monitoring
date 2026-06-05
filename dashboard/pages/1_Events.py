@@ -187,6 +187,7 @@ def _render_batch_builder(existing_cells, add_callback, prefix):
             add_callback(_batch_names(cell_name, suffixes))
 
     names = _batch_names(cell_name, suffixes) if cell_name.strip() else []
+    has_suffixes = bool(suffixes.strip())
     if names:
         lines = []
         for name in names:
@@ -197,6 +198,8 @@ def _render_batch_builder(existing_cells, add_callback, prefix):
             else:
                 lines.append(f'<span style="opacity:0.65">+ {name}</span>')
         st.markdown("<br>".join(lines), unsafe_allow_html=True)
+        if has_suffixes and not cell_name.strip().endswith("_px"):
+            st.caption("💡 Pixel batches should use a `_px` base name — e.g. `SUB003_px`")
 
 
 def _render_cell_picker(existing_cells, add_callback, prefix):
