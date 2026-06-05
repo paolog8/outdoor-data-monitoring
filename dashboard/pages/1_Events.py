@@ -278,11 +278,12 @@ def _render_setup_tab():
             status_rows = tracker_status_snapshot(selected_tracker_id)
             status_table = [
                 {
-                    "slot_code": row[0],
-                    "is_connected": row[1],
-                    "cell_name": row[2],
-                    "mode_code": row[3],
-                    "connected_since": row[4],
+                    "slot_code": row["slot_code"],
+                    "is_connected": row["is_connected"],
+                    "cell_name": row["cell_name"],
+                    "mode_code": row["mode_code"],
+                    "connected_since": row["connected_since"],
+                    "polarity_code": row["polarity_code"],
                 }
                 for row in status_rows
             ]
