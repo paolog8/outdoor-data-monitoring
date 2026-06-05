@@ -34,16 +34,22 @@ def load_cells_full():
             SELECT
                 sc.id,
                 sc.name,
+                sct.code AS cell_type,
                 sc.area_cm2,
-                COALESCE(mfr.name || CASE WHEN mfr.affiliation <> '' THEN ' (' || mfr.affiliation || ')' ELSE '' END, '')
-                    AS manufacturer,
+                sc.initial_pce,
+                sc.structure,
                 COALESCE(owner.name || CASE WHEN owner.affiliation <> '' THEN ' (' || owner.affiliation || ')' ELSE '' END, '')
                     AS owner,
+                COALESCE(mfr.name || CASE WHEN mfr.affiliation <> '' THEN ' (' || mfr.affiliation || ')' ELSE '' END, '')
+                    AS manufacturer,
                 grp.name AS group_name,
                 gt.code AS group_type,
                 sc.position_in_group,
+                sc.id_alternative,
+                sc.id_pvcomb,
                 sc.nomad_entry_url
             FROM solar_cell sc
+            LEFT JOIN solar_cell_type sct ON sct.id = sc.cell_type_id
             LEFT JOIN scientist mfr ON mfr.id = sc.manufacturer_id
             LEFT JOIN scientist owner ON owner.id = sc.owner_id
             LEFT JOIN solar_cell_group grp ON grp.id = sc.group_id
@@ -62,9 +68,17 @@ def load_recent_cells(limit=10):
     ):
         cur.execute(
             """
-            SELECT id, name, area_cm2, position_in_group
-            FROM solar_cell
-            ORDER BY id DESC
+            SELECT
+                sc.id,
+                sc.name,
+                sct.code AS cell_type,
+                sc.area_cm2,
+                sc.initial_pce,
+                sc.structure,
+                sc.position_in_group
+            FROM solar_cell sc
+            LEFT JOIN solar_cell_type sct ON sct.id = sc.cell_type_id
+            ORDER BY sc.id DESC
             LIMIT %s
             """,
             (limit,),
