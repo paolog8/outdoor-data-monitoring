@@ -1,0 +1,34 @@
+name: Validate
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Python syntax check (dashboard + ingestion)
+        run: |
+          python3 -m compileall -q dashboard ingestion
+          echo "Python syntax OK."
+
+      - name: Check migration numbering (append-only, no gaps beyond known V13)
+        run: |
+          python3 - <<'EOF'
+          import re, glob, sys
+          versions = sorted(int(re.match(r'V(\d+)__', f.split('/')[-1]).group(1))
+                            for f in glob.glob('migrations/V*.sql'))
+          dupes = {v for v in versions if versions.count(v) > 1}
+          if dupes:
+              sys.exit(f"duplicate migration versions: {dupes}")
+          # V13 is a known historical gap
+          expected = [v for v in range(versions[0], versions[-1] + 1) if v != 13]
+          missing = set(expected) - set(versions)
+          if missing:
+              sys.exit(f"missing migration versions: {sorted(missing)}")
+          print(f"Migrations OK: V{versions[0]}–V{versions[-1]} ({len(versions)} files)")
+          EOF
