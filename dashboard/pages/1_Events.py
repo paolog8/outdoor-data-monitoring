@@ -6,8 +6,10 @@ from db import (
     cells_exist,
     current_sensors_for_cell,
     current_slot_for_cell,
+    delete_connection_event,
     ensure_cell,
     insert_events,
+    recent_connection_events,
     insert_sensor_association_events,
     link_cell_experiment,
     load_cell_types,
@@ -971,12 +973,84 @@ def _render_teardown_tab():
             st.error(f"Database error: {exc}")
 
 
+def _render_corrections_tab():
+    st.subheader("Correct a mistaken event")
+    st.warning(
+        "The event log is append-only by design. As a safety measure, only the "
+        "most recent event of each slot can be deleted — removing an older event "
+        "would silently change how measurements between events are attributed "
+        "to cells."
+    )
+
+    events = recent_connection_events(25)
+    if not events:
+        st.info("No connection events recorded yet.")
+        return
+
+    st.dataframe(
+        [
+            {
+                "occurred_at": event["occurred_at"],
+                "event": event["event_type"],
+                "cell": event["cell_name"],
+                "tracker": event["tracker_name"],
+                "slot": event["slot_code"],
+                "mode": event["mode_code"],
+                "polarity": event["polarity_code"],
+                "deletable": event["is_latest_for_slot"],
+            }
+            for event in events
+        ],
+        use_container_width=True,
+    )
+
+    deletable = [event for event in events if event["is_latest_for_slot"]]
+    if not deletable:
+        st.caption("None of the recent events can be deleted.")
+        return
+
+    event_labels = {
+        (
+            f"{event['occurred_at']:%Y-%m-%d %H:%M} — {event['event_type']} — "
+            f"{event['cell_name']} @ {event['tracker_name']}/{event['slot_code']}"
+        ): event["id"]
+        for event in deletable
+    }
+    selected_label = st.selectbox(
+        "Event to delete", list(event_labels.keys()), key="corrections_event"
+    )
+    confirmed = st.checkbox(
+        "I understand this permanently deletes the event and changes how "
+        "measurements are attributed to the cell.",
+        key="corrections_confirm",
+    )
+    if st.button(
+        "Delete event", type="primary", disabled=not confirmed, key="corrections_delete"
+    ):
+        try:
+            if delete_connection_event(event_labels[selected_label]):
+                st.success("Event deleted.")
+                _clear_and_rerun()
+            else:
+                st.error(
+                    "Event is no longer the most recent on its slot — "
+                    "refresh and try again."
+                )
+        except Exception as exc:
+            st.error(f"Database error: {exc}")
+
+
 _ensure_state()
 
-tab_setup, tab_teardown = st.tabs(["Connect & Associate", "Disconnect & Dissociate"])
+tab_setup, tab_teardown, tab_corrections = st.tabs(
+    ["Connect & Associate", "Disconnect & Dissociate", "Corrections"]
+)
 
 with tab_setup:
     _render_setup_tab()
 
 with tab_teardown:
     _render_teardown_tab()
+
+with tab_corrections:
+    _render_corrections_tab()
