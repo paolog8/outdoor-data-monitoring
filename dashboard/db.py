@@ -481,6 +481,67 @@ def insert_events(rows):
         conn.commit()
 
 
+@st.cache_data(ttl=30)
+def recent_connection_events(limit=25):
+    """Most recent MPP connection events with display names. is_latest_for_slot
+    marks events with no later event on the same slot — the only ones that can
+    be deleted without silently changing measurement attribution between
+    earlier events."""
+    with (
+        get_connection() as conn,
+        conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur,
+    ):
+        cur.execute(
+            """
+            SELECT
+                e.id,
+                e.occurred_at,
+                e.event_type,
+                sc.name AS cell_name,
+                t.name  AS tracker_name,
+                s.slot_code,
+                m.code  AS mode_code,
+                p.code  AS polarity_code,
+                NOT EXISTS (
+                    SELECT 1 FROM mpp_connection_event later
+                    WHERE later.mpp_tracking_slot_id = e.mpp_tracking_slot_id
+                      AND (later.occurred_at, later.id) > (e.occurred_at, e.id)
+                ) AS is_latest_for_slot
+            FROM mpp_connection_event e
+            JOIN solar_cell sc       ON sc.id = e.solar_cell_id
+            JOIN mpp_tracking_slot s ON s.id  = e.mpp_tracking_slot_id
+            JOIN mpp_tracker t       ON t.id  = s.mpp_tracker_id
+            LEFT JOIN mpp_connection_mode m ON m.id = e.mode_id
+            LEFT JOIN mpp_polarity p        ON p.id = e.polarity_id
+            ORDER BY e.occurred_at DESC, e.id DESC
+            LIMIT %s
+            """,
+            (limit,),
+        )
+        return [dict(r) for r in cur.fetchall()]
+
+
+def delete_connection_event(event_id):
+    """Deletes a connection event only if it is still the most recent on its
+    slot. Returns True if a row was deleted."""
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            DELETE FROM mpp_connection_event e
+            WHERE e.id = %s
+              AND NOT EXISTS (
+                  SELECT 1 FROM mpp_connection_event later
+                  WHERE later.mpp_tracking_slot_id = e.mpp_tracking_slot_id
+                    AND (later.occurred_at, later.id) > (e.occurred_at, e.id)
+              )
+            """,
+            (event_id,),
+        )
+        deleted = cur.rowcount == 1
+        conn.commit()
+        return deleted
+
+
 def update_scientist(scientist_id, name, affiliation):
     with get_connection() as conn, conn.cursor() as cur:
         cur.execute(

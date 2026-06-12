@@ -1,3 +1,6 @@
+import os
+from urllib.parse import quote
+
 import psycopg2
 import streamlit as st
 
@@ -304,6 +307,163 @@ def _render_cells_tab():
             except Exception as exc:
                 st.error(f"Database error: {exc}")
 
+    with st.expander("Import cells from CSV"):
+        st.caption(
+            "Required column: `name`. Optional columns: `area_cm2`, `cell_type`, "
+            "`structure`, `initial_pce`, `owner`, `manufacturer`, `group`, "
+            "`position_in_group`, `experiment`. Owner/manufacturer are matched by "
+            "scientist name, group by group name, cell_type by code, experiment by "
+            "name — all must already exist in the registry."
+        )
+        uploaded_csv = st.file_uploader("CSV file", type=["csv"], key="reg_cells_csv")
+        if uploaded_csv is not None:
+            import csv
+            import io
+
+            try:
+                reader = csv.DictReader(
+                    io.StringIO(uploaded_csv.getvalue().decode("utf-8-sig"))
+                )
+                csv_rows = [
+                    {
+                        (key or "").strip().lower(): (value or "").strip()
+                        for key, value in raw.items()
+                    }
+                    for raw in reader
+                ]
+            except Exception as exc:
+                st.error(f"Could not parse CSV: {exc}")
+                csv_rows = []
+
+            if csv_rows and "name" not in csv_rows[0]:
+                st.error("CSV must have a 'name' column.")
+                csv_rows = []
+
+            if csv_rows:
+                scientists_by_name = {
+                    name: scientist_id
+                    for scientist_id, name, _affiliation in load_scientists()
+                }
+                groups_by_name = {
+                    name: group_id for group_id, name, _code in load_groups()
+                }
+                types_by_code = {
+                    code: type_id for type_id, code in load_cell_types()
+                }
+                experiments_by_name = {
+                    name: experiment_id
+                    for experiment_id, name in load_experiments()
+                }
+                existing_names = cells_exist(
+                    [row["name"] for row in csv_rows if row.get("name")]
+                )
+
+                def _resolve(row, column, lookup, problems):
+                    value = row.get(column, "")
+                    if not value:
+                        return None
+                    if value not in lookup:
+                        problems.append(f"unknown {column}: '{value}'")
+                    return lookup.get(value)
+
+                prepared, problems_by_name = [], {}
+                for index, row in enumerate(csv_rows, start=2):
+                    problems = []
+                    name = row.get("name", "")
+                    if not name:
+                        problems_by_name[f"row {index}"] = ["empty name"]
+                        continue
+                    if name in existing_names:
+                        problems.append("already exists")
+                    area_cm2 = initial_pce = None
+                    try:
+                        area_cm2 = _parse_optional_float(row.get("area_cm2", ""))
+                    except ValueError:
+                        problems.append(f"invalid area_cm2: '{row['area_cm2']}'")
+                    try:
+                        initial_pce = _parse_optional_float(row.get("initial_pce", ""))
+                    except ValueError:
+                        problems.append(f"invalid initial_pce: '{row['initial_pce']}'")
+                    prepared.append(
+                        {
+                            "name": name,
+                            "area_cm2": area_cm2,
+                            "manufacturer_id": _resolve(
+                                row, "manufacturer", scientists_by_name, problems
+                            ),
+                            "owner_id": _resolve(
+                                row, "owner", scientists_by_name, problems
+                            ),
+                            "group_id": _resolve(
+                                row, "group", groups_by_name, problems
+                            ),
+                            "position_in_group": row.get("position_in_group") or None,
+                            "cell_type_id": _resolve(
+                                row, "cell_type", types_by_code, problems
+                            ),
+                            "structure": row.get("structure") or None,
+                            "initial_pce": initial_pce,
+                            "experiment_id": _resolve(
+                                row, "experiment", experiments_by_name, problems
+                            ),
+                        }
+                    )
+                    if problems:
+                        problems_by_name[name] = problems
+
+                duplicate_names = {
+                    row["name"]
+                    for row in prepared
+                    if sum(other["name"] == row["name"] for other in prepared) > 1
+                }
+                for duplicate in duplicate_names:
+                    problems_by_name.setdefault(duplicate, []).append(
+                        "duplicated in CSV"
+                    )
+
+                st.dataframe(
+                    [
+                        {
+                            "name": row["name"],
+                            "status": "; ".join(problems_by_name[row["name"]])
+                            if row["name"] in problems_by_name
+                            else "ready",
+                        }
+                        for row in prepared
+                    ],
+                    use_container_width=True,
+                )
+
+                if problems_by_name:
+                    st.error(
+                        f"{len(problems_by_name)} row(s) have problems — fix the "
+                        "CSV and re-upload. Nothing was imported."
+                    )
+                elif st.button(
+                    f"Import {len(prepared)} cell(s)",
+                    type="primary",
+                    key="reg_cells_csv_import",
+                ):
+                    try:
+                        for row in prepared:
+                            cell_id = insert_cell(
+                                row["name"],
+                                row["area_cm2"],
+                                row["manufacturer_id"],
+                                row["owner_id"],
+                                row["group_id"],
+                                row["position_in_group"],
+                                row["cell_type_id"],
+                                row["structure"],
+                                row["initial_pce"],
+                            )
+                            if row["experiment_id"] is not None:
+                                link_cell_experiment(cell_id, row["experiment_id"])
+                        st.success(f"Imported {len(prepared)} cell(s).")
+                        _clear_and_rerun()
+                    except Exception as exc:
+                        st.error(f"Database error: {exc}")
+
     st.divider()
     st.subheader("Edit existing cell")
     cells = load_cells()
@@ -358,6 +518,13 @@ def _render_cells_tab():
         )
 
         st.caption(f"Cell name: {cell_data['name']}")
+        grafana_base = os.environ.get("GRAFANA_BASE_URL", "").rstrip("/")
+        if grafana_base:
+            st.markdown(
+                f"[Open in Grafana (Single Cell Deep-Dive) ↗]"
+                f"({grafana_base}/d/outdoor-single-cell/single-cell-deep-dive"
+                f"?var-cell={quote(cell_data['name'])})"
+            )
         edit_cell_type = st.selectbox(
             "Cell type",
             cell_type_labels,
