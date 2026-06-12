@@ -59,9 +59,14 @@ See `docs/ingestion-patterns.md` for file formats and how to add a new sensor ty
 
 - **Overview** — system counts, tracker slot occupancy snapshot
 - **Events** — connect cells to tracker slots (board/channel grid), associate sensors,
-  teardown; supports batch entry and historical dates
+  teardown; supports batch entry and historical dates. A **Corrections** tab allows
+  deleting the most recent event of a slot (with confirmation) to fix data-entry
+  mistakes — older events are immutable by design.
 - **Registry** — CRUD for scientists, cells (incl. type/structure/initial PCE), groups,
-  experiments, sensors
+  experiments, sensors; batch cell registration and CSV import
+
+Set `GRAFANA_BASE_URL` in `.env` (e.g. `https://<hub-host>`) to get "Open in Grafana"
+deep-links from the cell edit form to the hub's Single Cell Deep-Dive dashboard.
 
 All visualization/plotting happens in Grafana on the hub, not here.
 
