@@ -21,7 +21,6 @@ data exports ──► ingestion (daily cron) ──► Postgres/TimescaleDB ─
 | `ingestion` | Cron container: runs `ingest.py` daily at 02:00 and once at startup |
 | `dashboard` | Streamlit app on port 8501 (registry + events UI) |
 | `symmetricds` | Edge replication node, pushes to the hub (port 31415) |
-| `restart-orchestrator` | Restarts SymmetricDS every 6 h (long-run stall workaround) |
 
 Secrets come from `.env` (not committed): `POSTGRES_DB/USER/PASSWORD`, `SYM_PASSWORD`,
 `SYM_SERVER_ADDRESS/PORT`.
@@ -91,7 +90,7 @@ docker compose build dashboard && docker compose up -d dashboard   # redeploy UI
 
 Replication health: check the hub's Grafana "System Overview" → Data Freshness panel.
 If data age keeps growing while local ingestion succeeds, SymmetricDS is stalled —
-`docker restart symmetricds` (the orchestrator also does this every 6 h).
+`docker restart symmetricds`.
 
 ## Docs
 
