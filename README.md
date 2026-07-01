@@ -49,7 +49,7 @@ To re-ingest a folder, delete (or update) its `ingestion_log` row and let the ne
 run pick it up, or run immediately:
 
 ```bash
-docker compose run --rm ingestion python /app/ingest.py        # DRY_RUN=true to preview
+docker compose run --rm ingestion python3 /app/ingest.py       # DRY_RUN=true to preview
 ```
 
 See `docs/ingestion-patterns.md` for file formats and how to add a new sensor type.
