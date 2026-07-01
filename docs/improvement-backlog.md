@@ -46,12 +46,14 @@ Identified 2026-06-12 during a full review of both repos. The previous backlog
 5. **Corrections tab covers MPP events only** — sensor_association_event corrections
    would follow the same latest-per-(sensor,cell) pattern.
 6. **Per-cell irradiance for PCE** (cross-repo, the big one). PCE currently uses the
-   global irradiance sensor. Spec: new helper `irradiance_for_cell(cell_name, start,
-   end, bucket)` mirroring `mpp_measurements_for_cell`'s LEAD-interval logic over
-   `sensor_association_event` (irradiance sensors only), falling back to the global
-   average when the cell has no associated sensor. Migration here (next: V32) + hub
-   copy (+3 offset → V35), then switch the PCE queries in all hub dashboards. Needs
-   the migration applied before the dashboard change is deployed.
+   global irradiance sensor. **Partially done:** V32 adds
+   `mpp_measurements_with_sensors_for_cell`, which attaches per-cell
+   temperature/irradiance (via `sensor_association_event`) to MPP readings. Still
+   missing: no fallback to the global irradiance average when a cell has no
+   associated sensor (returns `NULL` instead) — needs a decision on which sensor
+   counts as "global" before that's added. Hub copy still needed (+3 offset → V35),
+   then switch the PCE queries in all hub dashboards. Needs the migration applied
+   before the dashboard change is deployed.
 
 ## Open items (hub repo — see also `grafana/dashboards/README.md` ideas)
 
