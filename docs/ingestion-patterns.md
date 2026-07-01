@@ -327,6 +327,19 @@ SELECT * FROM mpp_measurements_for_cell('Cell_A', p_bucket_interval => '10 secon
 
 The last example uses a **named argument** (`p_bucket_interval => ...`) to skip the `p_start`/`p_end` positional arguments without having to supply them explicitly.
 
+## Attaching sensor data to MPP measurements
+
+`mpp_measurements_with_sensors_for_cell` wraps `mpp_measurements_for_cell` and adds `temperature_c` / `irradiance_w_m2` columns, sourced from whichever temperature/irradiance sensors were associated with the cell (via `sensor_association_event`) at the time of each reading. Same signature and downsampling behaviour as `mpp_measurements_for_cell`:
+
+```sql
+SELECT * FROM mpp_measurements_with_sensors_for_cell('Cell_A');
+SELECT * FROM mpp_measurements_with_sensors_for_cell('Cell_A', '2024-06-01', '2024-07-01', '1 hour');
+```
+
+Raw path matches each MPP reading to the nearest-in-time sensor reading (bounded to the association interval); bucketed path averages sensor readings into the same buckets as the MPP data. If no temperature or irradiance sensor was associated with the cell at that time, the corresponding column is `NULL` — there's no fallback to a site-wide/global sensor (see backlog item on per-cell irradiance for PCE).
+
+Spectral sensors are not included — their measurements are per-wavelength arrays, not a scalar, so they don't fit this row shape.
+
 In bucketed mode:
 - `measured_at` is the **start** of the bucket window, not the exact time of any individual measurement.
 - `voltage`, `current_a`, `power_mw` are the **averages** of all raw values that fell in that window.
