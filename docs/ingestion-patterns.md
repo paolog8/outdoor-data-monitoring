@@ -292,7 +292,7 @@ SELECT * FROM mpp_measurements_for_cell('Cell_A', '2024-06-01', '2024-07-01');
 
 | Column | Type | Meaning |
 |---|---|---|
-| `measured_at` | `TIMESTAMPTZ` | Timestamp of the measurement (or bucket start when downsampling) |
+| `time` | `TIMESTAMPTZ` | Timestamp of the measurement (or bucket start when downsampling) |
 | `mode_code` | `TEXT` | Connection mode: `'mpp_tracking'`, `'short_circuit'`, or `'open_circuit'` |
 | `voltage` | `DOUBLE PRECISION` | Voltage in Volts |
 | `current_a` | `DOUBLE PRECISION` | Current in Amps |
@@ -336,12 +336,12 @@ SELECT * FROM mpp_measurements_with_sensors_for_cell('Cell_A');
 SELECT * FROM mpp_measurements_with_sensors_for_cell('Cell_A', '2024-06-01', '2024-07-01', '1 hour');
 ```
 
-Raw path matches each MPP reading to the nearest-in-time sensor reading (bounded to the association interval); bucketed path averages sensor readings into the same buckets as the MPP data. If no temperature or irradiance sensor was associated with the cell at that time, the corresponding column is `NULL` — there's no fallback to a site-wide/global sensor (see backlog item on per-cell irradiance for PCE).
+Raw path matches each MPP reading to the sensor reading at the exact same timestamp (sensors are sampled on the same clock as `mpp_measurement`); bucketed path averages sensor readings into the same buckets as the MPP data. If no temperature or irradiance sensor was associated with the cell at that time, or none was sampled at that exact timestamp, the corresponding column is `NULL` — there's no fallback to a site-wide/global sensor (see backlog item on per-cell irradiance for PCE).
 
 Spectral sensors are not included — their measurements are per-wavelength arrays, not a scalar, so they don't fit this row shape.
 
 In bucketed mode:
-- `measured_at` is the **start** of the bucket window, not the exact time of any individual measurement.
+- `time` is the **start** of the bucket window, not the exact time of any individual measurement.
 - `voltage`, `current_a`, `power_mw` are the **averages** of all raw values that fell in that window.
 - `mode_code` is the **most frequent** mode in the window (almost always a single mode, but edge cases around reconnection events are handled gracefully).
 
