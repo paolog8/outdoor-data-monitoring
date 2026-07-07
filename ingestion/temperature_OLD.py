@@ -13,12 +13,12 @@ logger = logging.getLogger(__name__)
 
 def parse_temperature_file(file_path: Path) -> list:
     """
-    Parses a TSV file with columns: time, sensorA, sensorB, ...
+    Parses a CSV file with columns: time, sensorA, sensorB, ...
     Returns list of lists of (datetime, serial, float) tuples.
     """
     rows = []
     with open(file_path, "r") as fh:
-        df = pd.read_csv(fh, sep="\t", header=0)
+        df = pd.read_csv(fh, sep=",", header=0)
 
         df = df.melt(id_vars=["time"], var_name="serial", value_name="temperature")
 
