@@ -13,29 +13,29 @@ logger = logging.getLogger(__name__)
 
 def parse_temperature_file(file_path: Path) -> list:
     """
-    Parses a TSV file with columns: timestamp, temperature[°C].
-    Returns list of (datetime, float) tuples.
+    Parses a TSV file with columns: time, sensorA, sensorB, ...
+    Returns list of lists of (datetime, serial, float) tuples.
     """
     rows = []
     with open(file_path, "r") as fh:
         df = pd.read_csv(fh, sep="\t", header=0)
 
-        df = df.melt(id_vars=["time"], var_name="sensor_id", value_name="temperature")
+        df = df.melt(id_vars=["time"], var_name="serial", value_name="temperature")
 
-        # group the data in df by sensor_id and iterate over each group
-        for sensor, group in df.groupby("sensor_id"):
+        # group the data in df by serial and iterate over each group
+        for serial, group in df.groupby("serial"):
             rows_per_sensor = []
             for _, row in group.iterrows():
                 try:
                     ts = datetime.datetime.fromisoformat(row["time"])
                     ts = ts.replace(tzinfo=datetime.timezone.utc)
                     temperature = float(row["temperature"])
-                    rows_per_sensor.append((ts, sensor, temperature))
+                    rows_per_sensor.append((ts, serial, temperature))
                 except (ValueError, OverflowError) as exc:
                     logger.warning(
                         "Skipping invalid row in %s for sensor %s: %s",
                         file_path,
-                        sensor,
+                        serial,
                         exc,
                     )
             rows.append(rows_per_sensor)
@@ -49,7 +49,7 @@ def ingest_temperature_measurements(
     inserted = 0
     for i in range(0, len(rows), batch_size):
         batch = rows[i : i + batch_size]
-        batch_data = [(ts, sensor_id, temperature) for ts, temperature in batch]
+        batch_data = [(ts, sensor_id, temperature) for ts, _, temperature in batch]
         if dry_run:
             logger.info(
                 "[DRY RUN] Would insert %d temperature rows for sensor %s",
