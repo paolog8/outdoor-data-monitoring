@@ -57,7 +57,7 @@ def process_folder(conn, slot_map: dict, folder_name: str, data_root: Path, batc
         log_id = cur.fetchone()[0]
     conn.commit()
 
-    folder_path = data_root / folder_name / folder_name
+    folder_path = data_root / folder_name 
     if not folder_path.is_dir():
         msg = f"Data subdirectory not found: {folder_path}"
         logger.error(msg)
