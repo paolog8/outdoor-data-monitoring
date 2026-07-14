@@ -1,6 +1,7 @@
 import datetime
 import logging
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import psycopg2.extras
 import pandas as pd
@@ -28,7 +29,7 @@ def parse_temperature_file(file_path: Path) -> list:
             for _, row in group.iterrows():
                 try:
                     ts = datetime.datetime.fromisoformat(row["time"])
-                    ts = ts.replace(tzinfo=datetime.timezone.utc)
+                    ts = ts.replace(tzinfo=ZoneInfo("Europe/Berlin"))
                     temperature = float(row["temperature"])
                     rows_per_sensor.append((ts, serial, temperature))
                 except (ValueError, OverflowError) as exc:
