@@ -2,6 +2,7 @@ import csv
 import datetime
 import logging
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import psycopg2.extras
 
@@ -23,12 +24,14 @@ def parse_temperature_file(file_path: Path) -> list:
             if len(row) != 2:
                 logger.warning(
                     "Skipping malformed row %d in %s (expected 2 columns, got %d)",
-                    lineno, file_path, len(row),
+                    lineno,
+                    file_path,
+                    len(row),
                 )
                 continue
             try:
-                ts          = datetime.datetime.fromisoformat(row[0])
-                ts          = ts.replace(tzinfo=datetime.timezone.utc)
+                ts = datetime.datetime.fromisoformat(row[0])
+                ts = ts.replace(tzinfo=ZoneInfo("Europe/Berlin"))
                 temperature = float(row[1])
                 rows.append((ts, temperature))
             except (ValueError, OverflowError) as exc:
@@ -38,7 +41,9 @@ def parse_temperature_file(file_path: Path) -> list:
     return rows
 
 
-def ingest_temperature_measurements(cur, sensor_id: int, rows: list, batch_size: int, dry_run: bool) -> int:
+def ingest_temperature_measurements(
+    cur, sensor_id: int, rows: list, batch_size: int, dry_run: bool
+) -> int:
     """Inserts temperature rows in batches. Returns count of rows actually written."""
     inserted = 0
     for i in range(0, len(rows), batch_size):
@@ -47,7 +52,8 @@ def ingest_temperature_measurements(cur, sensor_id: int, rows: list, batch_size:
         if dry_run:
             logger.info(
                 "[DRY RUN] Would insert %d temperature rows for sensor %s",
-                len(batch_data), sensor_id,
+                len(batch_data),
+                sensor_id,
             )
             continue
         psycopg2.extras.execute_values(
@@ -64,7 +70,9 @@ def ingest_temperature_measurements(cur, sensor_id: int, rows: list, batch_size:
     return inserted
 
 
-def ingest_temperature_folder(conn, folder_path: Path, batch_size: int, dry_run: bool) -> int:
+def ingest_temperature_folder(
+    conn, folder_path: Path, batch_size: int, dry_run: bool
+) -> int:
     """
     Processes all m7004 temperature files within a folder.
     One transaction per file.
@@ -74,7 +82,7 @@ def ingest_temperature_folder(conn, folder_path: Path, batch_size: int, dry_run:
         m = TEMP_FILE_RE.match(file_path.name)
         if not m:
             continue
-        serial    = m.group(1)
+        serial = m.group(1)
         sensor_id = upsert_temperature_sensor(conn, serial)
 
         rows = parse_temperature_file(file_path)
@@ -84,12 +92,17 @@ def ingest_temperature_folder(conn, folder_path: Path, batch_size: int, dry_run:
 
         try:
             with conn.cursor() as cur:
-                n = ingest_temperature_measurements(cur, sensor_id, rows, batch_size, dry_run)
+                n = ingest_temperature_measurements(
+                    cur, sensor_id, rows, batch_size, dry_run
+                )
             conn.commit()
             total_inserted += n
             logger.info(
                 "Committed %d new temperature rows from %s/%s (parsed %d)",
-                n, folder_path.parent.name, file_path.name, len(rows),
+                n,
+                folder_path.parent.name,
+                file_path.name,
+                len(rows),
             )
         except Exception:
             conn.rollback()

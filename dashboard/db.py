@@ -1,5 +1,6 @@
 import os
-from datetime import datetime, timezone
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 import psycopg2
 import psycopg2.extras
@@ -293,7 +294,13 @@ def insert_temperature_sensor(name, model, serial_number, location):
             INSERT INTO temperature_sensor (id, name, model, serial_number, location)
             VALUES (%s, %s, %s, %s, %s)
             """,
-            (sensor_id, name.strip(), model.strip() or None, serial_number.strip() or None, location.strip() or None),
+            (
+                sensor_id,
+                name.strip(),
+                model.strip() or None,
+                serial_number.strip() or None,
+                location.strip() or None,
+            ),
         )
         conn.commit()
         return sensor_id
@@ -310,7 +317,13 @@ def insert_irradiance_sensor(name, model, serial_number, location):
             INSERT INTO irradiance_sensor (id, name, model, serial_number, location)
             VALUES (%s, %s, %s, %s, %s)
             """,
-            (sensor_id, name.strip(), model.strip() or None, serial_number.strip() or None, location.strip() or None),
+            (
+                sensor_id,
+                name.strip(),
+                model.strip() or None,
+                serial_number.strip() or None,
+                location.strip() or None,
+            ),
         )
         conn.commit()
         return sensor_id
@@ -318,16 +331,21 @@ def insert_irradiance_sensor(name, model, serial_number, location):
 
 def insert_spectral_sensor(name, model, serial_number, wavelengths_nm, location):
     with get_connection() as conn, conn.cursor() as cur:
-        cur.execute(
-            "INSERT INTO sensor (sensor_type) VALUES ('spectral') RETURNING id"
-        )
+        cur.execute("INSERT INTO sensor (sensor_type) VALUES ('spectral') RETURNING id")
         sensor_id = cur.fetchone()[0]
         cur.execute(
             """
             INSERT INTO spectral_sensor (id, name, instrument, serial_number, wavelengths_nm, location)
             VALUES (%s, %s, %s, %s, %s, %s)
             """,
-            (sensor_id, name.strip(), model.strip() or None, serial_number.strip() or None, wavelengths_nm, location.strip() or None),
+            (
+                sensor_id,
+                name.strip(),
+                model.strip() or None,
+                serial_number.strip() or None,
+                wavelengths_nm,
+                location.strip() or None,
+            ),
         )
         conn.commit()
         return sensor_id
@@ -627,8 +645,15 @@ def update_group_cell_id(group_id, cell_id):
 
 
 def insert_cell(
-    name, area_cm2, manufacturer_id, owner_id, group_id, position_in_group,
-    cell_type_id=None, structure=None, initial_pce=None,
+    name,
+    area_cm2,
+    manufacturer_id,
+    owner_id,
+    group_id,
+    position_in_group,
+    cell_type_id=None,
+    structure=None,
+    initial_pce=None,
 ):
     with get_connection() as conn, conn.cursor() as cur:
         cur.execute(
@@ -655,8 +680,16 @@ def insert_cell(
 
 
 def update_cell_metadata(
-    cell_id, area_cm2, manufacturer_id, owner_id, group_id, position_in_group,
-    nomad_entry_url=None, cell_type_id=None, structure=None, initial_pce=None,
+    cell_id,
+    area_cm2,
+    manufacturer_id,
+    owner_id,
+    group_id,
+    position_in_group,
+    nomad_entry_url=None,
+    cell_type_id=None,
+    structure=None,
+    initial_pce=None,
 ):
     with get_connection() as conn, conn.cursor() as cur:
         cur.execute(
@@ -812,5 +845,9 @@ def parse_board_channel(slot_code):
 
 def to_timestamptz(d, event_type):
     if event_type in {"connection", "association"}:
-        return datetime(d.year, d.month, d.day, 0, 0, 0, tzinfo=timezone.utc)
-    return datetime(d.year, d.month, d.day, 23, 59, 59, tzinfo=timezone.utc)
+        return datetime(
+            d.year, d.month, d.day, 0, 0, 0, tzinfo=ZoneInfo("Europe/Berlin")
+        )
+    return datetime(
+        d.year, d.month, d.day, 23, 59, 59, tzinfo=ZoneInfo("Europe/Berlin")
+    )
