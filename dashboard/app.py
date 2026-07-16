@@ -7,10 +7,12 @@ st.set_page_config(page_title="Outdoor PV Monitor", layout="wide")
 st.markdown(
     """
     <style>
+    [data-testid="stMainBlockContainer"],
+    [data-testid="block-container"],
     .block-container {
-        max-width: 100%;
-        padding-left: 2rem;
-        padding-right: 2rem;
+        max-width: 100% !important;
+        padding-left: 2rem !important;
+        padding-right: 2rem !important;
     }
     </style>
     """,
