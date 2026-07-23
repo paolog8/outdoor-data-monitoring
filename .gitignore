@@ -4,3 +4,5 @@ CLAUDE.md
 
 data/
 docker-compose.override.yml
+
+*.org
