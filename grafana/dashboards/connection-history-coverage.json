@@ -30,7 +30,7 @@
         {
           "refId": "A",
           "datasource": { "type": "postgres", "uid": "ffk21zlrlrqioe" },
-          "rawSql": "SELECT\n  e.occurred_at            AS \"When\",\n  e.event_type             AS \"Event\",\n  sc.name                  AS \"Cell\",\n  t.name                   AS \"Tracker\",\n  s.slot_code              AS \"Slot\",\n  COALESCE(mcm.code, '—')  AS \"Mode\",\n  COALESCE(mp.code, '—')   AS \"Polarity\"\nFROM mpp_connection_event e\nJOIN mpp_tracking_slot s    ON s.id = e.mpp_tracking_slot_id\nJOIN mpp_tracker t          ON t.id = s.mpp_tracker_id\nJOIN solar_cell sc          ON sc.id = e.solar_cell_id\nLEFT JOIN mpp_connection_mode mcm ON mcm.id = e.mode_id\nLEFT JOIN mpp_polarity mp   ON mp.id = e.polarity_id\nWHERE $__timeFilter(e.occurred_at)\nORDER BY e.occurred_at DESC",
+          "rawSql": "SELECT\n  e.timestamp            AS \"When\",\n  e.event_type             AS \"Event\",\n  sc.name                  AS \"Cell\",\n  t.name                   AS \"Tracker\",\n  s.slot_code              AS \"Slot\",\n  COALESCE(mcm.code, '—')  AS \"Mode\",\n  COALESCE(mp.code, '—')   AS \"Polarity\"\nFROM mpp_connection_event e\nJOIN mpp_tracking_slot s    ON s.id = e.mpp_tracking_slot_id\nJOIN mpp_tracker t          ON t.id = s.mpp_tracker_id\nJOIN solar_cell sc          ON sc.id = e.solar_cell_id\nLEFT JOIN mpp_connection_mode mcm ON mcm.id = e.mode_id\nLEFT JOIN mpp_polarity mp   ON mp.id = e.polarity_id\nWHERE $__timeFilter(e.timestamp)\nORDER BY e.timestamp DESC",
           "format": "table"
         }
       ],
@@ -122,7 +122,7 @@
         {
           "refId": "A",
           "datasource": { "type": "postgres", "uid": "ffk21zlrlrqioe" },
-          "rawSql": "SELECT\n  MIN(measured_at)                      AS \"First Measurement\",\n  MAX(measured_at)                      AS \"Last Measurement\",\n  COUNT(DISTINCT measured_at::date)     AS \"Days with Data\"\nFROM mpp_measurements_for_cell('$cell', TIMESTAMPTZ '2020-01-01', now(), INTERVAL '1 day')",
+          "rawSql": "SELECT\n  MIN(timestamp)                      AS \"First Measurement\",\n  MAX(timestamp)                      AS \"Last Measurement\",\n  COUNT(DISTINCT timestamp::date)     AS \"Days with Data\"\nFROM mpp_measurements_for_cell('$cell', TIMESTAMPTZ '2020-01-01', now(), INTERVAL '1 day')",
           "format": "table"
         }
       ],

@@ -30,7 +30,7 @@
         {
           "refId": "A",
           "datasource": { "type": "postgres", "uid": "ffk21zlrlrqioe" },
-          "rawSql": "SELECT\n  time_bucket(INTERVAL '1 millisecond' * $__interval_ms, m.time) AS time,\n  s.name || COALESCE(' (' || s.location || ')', '') AS metric,\n  AVG(m.irradiance) AS \"Irradiance\"\nFROM irradiance_measurement m\nJOIN irradiance_sensor s ON s.id = m.irradiance_sensor_id\nWHERE $__timeFilter(m.time)\nGROUP BY 1, 2\nORDER BY 1, 2",
+          "rawSql": "SELECT\n  time_bucket(INTERVAL '1 millisecond' * $__interval_ms, m.timestamp) AS time,\n  s.name || COALESCE(' (' || s.location || ')', '') AS metric,\n  AVG(m.irradiance) AS \"Irradiance\"\nFROM irradiance_measurement m\nJOIN irradiance_sensor s ON s.id = m.irradiance_sensor_id\nWHERE $__timeFilter(m.timestamp)\nGROUP BY 1, 2\nORDER BY 1, 2",
           "format": "time_series"
         }
       ],
@@ -75,7 +75,7 @@
         {
           "refId": "A",
           "datasource": { "type": "postgres", "uid": "ffk21zlrlrqioe" },
-          "rawSql": "SELECT\n  time_bucket(INTERVAL '1 millisecond' * $__interval_ms, m.time) AS time,\n  s.name || COALESCE(' (' || s.location || ')', '') AS metric,\n  AVG(m.temperature) AS \"Cell Temperature\"\nFROM temperature_measurement m\nJOIN temperature_sensor s ON s.id = m.temperature_sensor_id\nWHERE $__timeFilter(m.time)\n  AND m.temperature > -999\nGROUP BY 1, 2\nORDER BY 1, 2",
+          "rawSql": "SELECT\n  time_bucket(INTERVAL '1 millisecond' * $__interval_ms, m.timestamp) AS time,\n  s.name || COALESCE(' (' || s.location || ')', '') AS metric,\n  AVG(m.temperature) AS \"Cell Temperature\"\nFROM temperature_measurement m\nJOIN temperature_sensor s ON s.id = m.temperature_sensor_id\nWHERE $__timeFilter(m.timestamp)\n  AND m.temperature > -999\nGROUP BY 1, 2\nORDER BY 1, 2",
           "format": "time_series"
         }
       ],
@@ -120,7 +120,7 @@
         {
           "refId": "A",
           "datasource": { "type": "postgres", "uid": "ffk21zlrlrqioe" },
-          "rawSql": "SELECT\n  time_bucket('1 day', time) AS time,\n  AVG(irradiance) * 24 / 1000 AS \"Insolation\"\nFROM irradiance_measurement\nWHERE $__timeFilter(time)\nGROUP BY 1\nORDER BY 1",
+          "rawSql": "SELECT\n  time_bucket('1 day', timestamp) AS time,\n  AVG(irradiance) * 24 / 1000 AS \"Insolation\"\nFROM irradiance_measurement\nWHERE $__timeFilter(timestamp)\nGROUP BY 1\nORDER BY 1",
           "format": "time_series"
         }
       ],
