@@ -1,7 +1,6 @@
 from datetime import date
 
 import streamlit as st
-
 from db import (
     cells_exist,
     current_sensors_for_cell,
@@ -9,24 +8,47 @@ from db import (
     delete_connection_event,
     ensure_cell,
     insert_events,
-    recent_connection_events,
     insert_sensor_association_events,
     link_cell_experiment,
     load_cell_types,
     load_cells,
     load_experiments,
-    load_polarities,
     load_groups,
     load_modes,
+    load_polarities,
     load_scientists,
     load_sensors,
     load_slots,
     load_trackers,
     parse_board_channel,
+    recent_connection_events,
     to_timestamptz,
     tracker_status_snapshot,
     update_cell_metadata,
+    upsert_experiment,
+    upsert_scientist,
 )
+
+SETUP_COLUMNS = [
+    "cell_name",
+    "connect_date",
+    "board",
+    "ch",
+    "mode",
+    "polarity",
+    "temp_sensor",
+    "irradiance_sensor",
+    "cell_type",
+    "area_cm2",
+    "initial_pce",
+    "structure",
+    "owner",
+    "producer",
+    "group",
+    "px",
+    "experiment",
+    "disconnect_date",
+]
 
 
 st.title("Cell Events")
@@ -64,18 +86,39 @@ def _add_setup_rows(names):
         cell_name = raw_name.strip()
         if not cell_name or cell_name in seen:
             continue
-        st.session_state.setup.append(
-            {
-                "cell_name": cell_name,
-                "is_new": cell_name not in existing_names,
-                "slot_id": None,
-                "slot_code": "",
-                "mode_id": default_mode_id,
-                "mode_code": default_mode_code,
-                "sensor_ids": [],
-                "sensor_display": [],
-            }
-        )
+        row = {
+            "cell_name": cell_name,
+            "connect_date": None,
+            "board": None,
+            "ch": None,
+            "mode": default_mode_code,
+            "polarity": None,
+            "temp_sensor": None,
+            "irradiance_sensor": None,
+            "cell_type": None,
+            "area_cm2": None,
+            "initial_pce": None,
+            "structure": None,
+            "owner": None,
+            "producer": None,
+            "group": None,
+            "px": None,
+            "experiment": None,
+            "disconnect_date": None,
+        }
+        if cell_name in existing_names:
+            cell_data = load_cell_by_id(cell_id_by_name[cell_name])
+            row.update(
+                cell_type=cell_type_label_by_id.get(cell_data["cell_type_id"]),
+                area_cm2=cell_data["area_cm2"],
+                initial_pce=cell_data["initial_pce"],
+                structure=cell_data["structure"],
+                owner=scientist_label_by_id.get(cell_data["owner_id"]),
+                producer=scientist_label_by_id.get(cell_data["manufacturer_id"]),
+                group=group_label_by_id.get(cell_data["group_id"]),
+                px=cell_data["position_in_group"],
+            )
+        st.session_state.setup_rows.append(row)
         seen.add(cell_name)
 
 
@@ -234,20 +277,253 @@ def _render_cell_picker(existing_cells, add_callback, prefix):
             st.rerun()
 
 
+def _is_blank(value):
+    if value is None:
+        return True
+    if isinstance(value, float) and pd.isna(value):
+        return True
+    if isinstance(value, str) and not value.strip():
+        return True
+    try:
+        return bool(pd.isna(value))
+    except (TypeError, ValueError):
+        return False
+
+
+def _cell_str(value):
+    return "" if _is_blank(value) else str(value).strip()
+
+
+def _cell_date(value):
+    """Normalizes a data_editor date cell to a datetime.date. Values entered
+    via the date picker come back as datetime/Timestamp objects, but pasted
+    values can come back as plain strings — parse those explicitly instead
+    of passing them through, or downstream code blows up on .year access."""
+    if _is_blank(value):
+        return None
+    if isinstance(value, str):
+        return pd.to_datetime(value).date()
+    return value.date() if hasattr(value, "date") else value
+
+
+def _cell_num(value):
+    return None if _is_blank(value) else float(value)
+
+
+def _row_is_empty(row):
+    return all(_is_blank(row[col]) for col in SETUP_COLUMNS)
+
+
+def _resolve_setup_rows(
+    edited_df,
+    use_board_channel,
+    slot_by_board_channel,
+    slot_id_by_code,
+    mode_id_by_code,
+    polarity_options,
+    cell_type_options,
+    scientist_options,
+    group_options,
+    experiment_options,
+    temp_sensor_id_by_label,
+    irradiance_sensor_id_by_label,
+    preset_sensor_ids,
+):
+    """Validates and resolves the grid into DB-ready rows. Returns
+    (errors, resolved_rows, preview_rows) — errors is a flat list of
+    blocking problems, resolved_rows holds only error-free rows ready to
+    write, preview_rows is a per-row summary (name, new/existing, status)
+    for display regardless of whether that row had errors."""
+    errors = []
+    resolved_rows = []
+    preview_rows = []
+    names = []
+
+    non_blank_rows = [row for _, row in edited_df.iterrows() if not _row_is_empty(row)]
+    candidate_names = [
+        _cell_str(row["cell_name"])
+        for row in non_blank_rows
+        if _cell_str(row["cell_name"])
+    ]
+    existing_names = cells_exist(candidate_names)
+
+    for row in non_blank_rows:
+        row_errors = []
+        cell_name = _cell_str(row["cell_name"])
+        if not cell_name:
+            errors.append("One or more rows have an empty cell name.")
+            continue
+        names.append(cell_name)
+        is_new = cell_name not in existing_names
+
+        try:
+            connect_date = _cell_date(row["connect_date"])
+        except (TypeError, ValueError):
+            row_errors.append("connect date is not a valid date")
+            connect_date = None
+        else:
+            if connect_date is None:
+                row_errors.append("connect date is required")
+
+        try:
+            disconnect_date = _cell_date(row["disconnect_date"])
+        except (TypeError, ValueError):
+            row_errors.append("disconnect date is not a valid date")
+            disconnect_date = None
+
+        if (
+            connect_date is not None
+            and disconnect_date is not None
+            and disconnect_date < connect_date
+        ):
+            row_errors.append("disconnect date must be on or after the connect date")
+
+        board_value = _cell_str(row["board"])
+        slot_id = None
+        if use_board_channel:
+            ch_value = _cell_str(row["ch"])
+            if bool(board_value) != bool(ch_value):
+                row_errors.append("Board and CH must both be set, or both left blank")
+            elif board_value and ch_value:
+                try:
+                    slot_id = slot_by_board_channel.get(
+                        (int(board_value), int(ch_value))
+                    )
+                except ValueError:
+                    slot_id = None
+                if slot_id is None:
+                    row_errors.append(
+                        f"no slot for board {board_value} / ch {ch_value}"
+                    )
+        elif board_value:
+            slot_id = slot_id_by_code.get(board_value)
+            if slot_id is None:
+                row_errors.append(f"unknown slot '{board_value}'")
+
+        temp_sensor_label = _cell_str(row["temp_sensor"])
+        temp_sensor_id = (
+            temp_sensor_id_by_label.get(temp_sensor_label)
+            if temp_sensor_label
+            else None
+        )
+        irradiance_sensor_label = _cell_str(row["irradiance_sensor"])
+        irradiance_sensor_id = (
+            irradiance_sensor_id_by_label.get(irradiance_sensor_label)
+            if irradiance_sensor_label
+            else None
+        )
+        row_sensor_ids = set(preset_sensor_ids)
+        if temp_sensor_id is not None:
+            row_sensor_ids.add(temp_sensor_id)
+        if irradiance_sensor_id is not None:
+            row_sensor_ids.add(irradiance_sensor_id)
+
+        if slot_id is None and not row_sensor_ids:
+            row_errors.append("choose a slot, at least one sensor, or both")
+
+        mode_code = _cell_str(row["mode"])
+        mode_id = mode_id_by_code.get(mode_code) if mode_code else None
+        if slot_id is not None and mode_id is None:
+            row_errors.append("mode is required for a slot assignment")
+
+        polarity_code = _cell_str(row["polarity"])
+        polarity_id = polarity_options.get(polarity_code) if polarity_code else None
+
+        cell_type_code = _cell_str(row["cell_type"])
+        cell_type_id = cell_type_options.get(cell_type_code) if cell_type_code else None
+
+        owner_label = _cell_str(row["owner"])
+        owner_id = scientist_options.get(owner_label) if owner_label else None
+
+        producer_label = _cell_str(row["producer"])
+        manufacturer_id = (
+            scientist_options.get(producer_label) if producer_label else None
+        )
+
+        group_label = _cell_str(row["group"])
+        group_id = group_options.get(group_label) if group_label else None
+
+        experiment_label = _cell_str(row["experiment"])
+        experiment_id = (
+            experiment_options.get(experiment_label) if experiment_label else None
+        )
+
+        try:
+            area_cm2 = _cell_num(row["area_cm2"])
+        except (TypeError, ValueError):
+            row_errors.append("area must be a number")
+            area_cm2 = None
+        try:
+            initial_pce = _cell_num(row["initial_pce"])
+        except (TypeError, ValueError):
+            row_errors.append("initial PCE must be a number")
+            initial_pce = None
+
+        preview_rows.append(
+            {
+                "cell_name": cell_name,
+                "action": "new cell" if is_new else "existing cell (update)",
+                "connect_date": connect_date,
+                "disconnect_date": disconnect_date,
+                "status": "ready" if not row_errors else "; ".join(row_errors),
+            }
+        )
+
+        if row_errors:
+            errors.extend(f"{cell_name}: {problem}" for problem in row_errors)
+            continue
+
+        resolved_rows.append(
+            {
+                "cell_name": cell_name,
+                "connect_date": connect_date,
+                "disconnect_date": disconnect_date,
+                "slot_id": slot_id,
+                "mode_id": mode_id,
+                "polarity_id": polarity_id,
+                "sensor_ids": row_sensor_ids,
+                "cell_type_id": cell_type_id,
+                "area_cm2": area_cm2,
+                "initial_pce": initial_pce,
+                "structure": _cell_str(row["structure"]) or None,
+                "owner_id": owner_id,
+                "manufacturer_id": manufacturer_id,
+                "group_id": group_id,
+                "position_in_group": _cell_str(row["px"]) or None,
+                "experiment_id": experiment_id,
+            }
+        )
+
+    if len(names) != len(set(names)):
+        errors.append("Setup rows contain duplicate cell names.")
+
+    return errors, resolved_rows, preview_rows
+
+
 def _render_setup_tab():
     existing_cells = load_cells()
     existing_names = {name for _, name in existing_cells}
     sensors = load_sensors()
     sensor_labels = []
     sensor_id_by_label = {}
-    label_by_sensor_id = {}
+    temp_sensor_labels = []
+    temp_sensor_id_by_label = {}
+    irradiance_sensor_labels = []
+    irradiance_sensor_id_by_label = {}
     for sensor_id, sensor_type, name, serial_number, location in sensors:
         detail_parts = [part for part in [serial_number, location] if part]
         detail_suffix = f" ({' | '.join(detail_parts)})" if detail_parts else ""
         label = f"[{sensor_type}] {name or f'Sensor {sensor_id}'}{detail_suffix}"
         sensor_labels.append(label)
         sensor_id_by_label[label] = sensor_id
-        label_by_sensor_id[sensor_id] = label
+        if sensor_type == "temperature":
+            temp_label = f"{name or f'Sensor {sensor_id}'}{detail_suffix}"
+            temp_sensor_labels.append(temp_label)
+            temp_sensor_id_by_label[temp_label] = sensor_id
+        elif sensor_type == "irradiance":
+            irradiance_label = f"{name or f'Sensor {sensor_id}'}{detail_suffix}"
+            irradiance_sensor_labels.append(irradiance_label)
+            irradiance_sensor_id_by_label[irradiance_label] = sensor_id
 
     scientist_options = _scientist_options()
     group_options = _group_options()
@@ -257,6 +533,27 @@ def _render_setup_tab():
     polarity_names = list(polarity_options.keys())
 
     _render_batch_builder(existing_cells, _add_setup_rows, "setup")
+
+    col_new_scientist, col_new_experiment = st.columns(2)
+    with col_new_scientist, st.expander("+ Register new scientist"):
+        new_sci_name = st.text_input("Name", key="setup_new_scientist_name")
+        new_sci_affiliation = st.text_input(
+            "Affiliation", key="setup_new_scientist_affiliation"
+        )
+        if st.button("Register scientist", key="setup_register_scientist"):
+            if not new_sci_name.strip():
+                st.error("Name is required.")
+            else:
+                upsert_scientist(new_sci_name, new_sci_affiliation)
+                _clear_and_rerun()
+    with col_new_experiment, st.expander("+ Register new experiment"):
+        new_experiment_name = st.text_input("Name", key="setup_new_experiment_name")
+        if st.button("Register experiment", key="setup_register_experiment"):
+            if not new_experiment_name.strip():
+                st.error("Name is required.")
+            else:
+                upsert_experiment(new_experiment_name)
+                _clear_and_rerun()
 
     trackers = load_trackers()
     tracker_names = [tracker_name for _, tracker_name in trackers]
@@ -317,320 +614,138 @@ def _render_setup_tab():
             row["sensor_ids"] = preset_ids[:]
             row["sensor_display"] = preset_sensors[:]
         st.rerun()
+    if st.session_state.setup_preset_sensor_display:
+        st.caption(
+            "Preset sensors applied to all rows: "
+            + ", ".join(st.session_state.setup_preset_sensor_display)
+        )
 
     st.divider()
-    new_count = sum(1 for row in st.session_state.setup if row["is_new"])
-    existing_count = len(st.session_state.setup) - new_count
-    st.caption(
-        f"{len(st.session_state.setup)} rows — {new_count} new cells, {existing_count} existing"
+
+    column_config = {
+        "cell_name": st.column_config.TextColumn("Cell name", required=True),
+        "connect_date": st.column_config.DateColumn("Connect date", required=True),
+        "board": st.column_config.SelectboxColumn(
+            "Board" if use_board_channel else "Slot", options=board_options
+        ),
+        "ch": st.column_config.SelectboxColumn("CH", options=channel_options),
+        "mode": st.column_config.SelectboxColumn(
+            "Mode", options=[code for _, code in load_modes()]
+        ),
+        "polarity": st.column_config.SelectboxColumn(
+            "Pol", options=list(polarity_options.keys())
+        ),
+        "temp_sensor": st.column_config.SelectboxColumn(
+            "Temp sensor", options=temp_sensor_labels
+        ),
+        "irradiance_sensor": st.column_config.SelectboxColumn(
+            "Irradiance sensor", options=irradiance_sensor_labels
+        ),
+        "cell_type": st.column_config.SelectboxColumn(
+            "Cell type", options=list(cell_type_options.keys())
+        ),
+        "area_cm2": st.column_config.NumberColumn("Area (cm²)", min_value=0.0),
+        "initial_pce": st.column_config.NumberColumn("Init. PCE (%)", min_value=0.0),
+        "structure": st.column_config.TextColumn("Structure"),
+        "owner": st.column_config.SelectboxColumn(
+            "Owner", options=list(scientist_options.keys())
+        ),
+        "producer": st.column_config.SelectboxColumn(
+            "Producer", options=list(scientist_options.keys())
+        ),
+        "group": st.column_config.SelectboxColumn(
+            "Group", options=list(group_options.keys())
+        ),
+        "px": st.column_config.TextColumn(
+            "Position (if not in name)",
+            help=(
+                "solar_cell.position_in_group — leave blank if the cell name "
+                "already encodes position (e.g. the _px suffix convention). "
+                "Use this for labels not baked into the name, like tandem "
+                "top/bottom."
+            ),
+        ),
+        "experiment": st.column_config.SelectboxColumn(
+            "Experiment", options=list(experiment_options.keys())
+        ),
+        "disconnect_date": st.column_config.DateColumn("Disconnect date"),
+    }
+    column_order = [col for col in SETUP_COLUMNS if use_board_channel or col != "ch"]
+
+    edited_df = st.data_editor(
+        pd.DataFrame(st.session_state.setup_rows, columns=SETUP_COLUMNS),
+        column_config=column_config,
+        column_order=column_order,
+        num_rows="dynamic",
+        key="setup_editor",
+        use_container_width=True,
     )
 
-    if not st.session_state.setup:
-        st.info("No setup rows yet.")
-    else:
-        modes = load_modes()
-        mode_names = [mode_code for _, mode_code in modes]
-        mode_id_by_code = {mode_code: mode_id for mode_id, mode_code in modes}
-
-        if use_board_channel:
-            header = st.columns([3, 2, 1, 2, 2, 2, 3, 1, 1, 1])
-            header[0].markdown("**Cell name**")
-            header[1].markdown("**Connect date**")
-            header[2].markdown("**Board**")
-            header[3].markdown("**Ch**")
-            header[4].markdown("**Mode**")
-            header[5].markdown("**Polarity**")
-            header[6].markdown("**Sensors**")
-            header[7].markdown("**Metadata**")
-            header[8].markdown("**Disc.**")
-            header[9].markdown("")
-        else:
-            header = st.columns([3, 2, 2, 2, 2, 3, 1, 1, 1])
-            header[0].markdown("**Cell name**")
-            header[1].markdown("**Connect date**")
-            header[2].markdown("**Slot**")
-            header[3].markdown("**Mode**")
-            header[4].markdown("**Polarity**")
-            header[5].markdown("**Sensors**")
-            header[6].markdown("**Metadata**")
-            header[7].markdown("**Disc.**")
-            header[8].markdown("")
-
-        rows_to_remove = []
-        board_options = ["-"] + [str(board) for board in boards]
-        channel_options = ["-"] + [str(channel) for channel in channels]
-        slot_select_options = ["(none)"] + slot_codes
-
-        for index, row in enumerate(st.session_state.setup):
-            if use_board_channel:
-                c_name, c_date, c_board, c_channel, c_mode, c_polarity, c_sensors, c_meta, c_disconnect, c_delete = (
-                    st.columns([3, 2, 1, 2, 2, 2, 3, 1, 1, 1])
-                )
-            else:
-                c_name, c_date, c_slot, c_mode, c_polarity, c_sensors, c_meta, c_disconnect, c_delete = st.columns(
-                    [3, 2, 2, 2, 2, 3, 1, 1, 1]
-                )
-
-            with c_name:
-                new_name = st.text_input(
-                    "cell",
-                    value=row["cell_name"],
-                    key=f"setup_name_{index}",
-                    label_visibility="collapsed",
-                ).strip()
-                row["cell_name"] = new_name
-                row["is_new"] = bool(new_name) and new_name not in existing_names
-                if row["is_new"]:
-                    st.caption("New cell")
-
-            with c_date:
-                st.date_input(
-                    "connect date",
-                    value=date.today(),
-                    key=f"setup_date_{index}",
-                    label_visibility="collapsed",
-                )
-
-            if use_board_channel:
-                current_board_channel = parse_board_channel(row.get("slot_code", ""))
-                selected_board = "-"
-                selected_channel = "-"
-                if current_board_channel is not None:
-                    current_board, current_channel = current_board_channel
-                    if str(current_board) in board_options:
-                        selected_board = str(current_board)
-                    if str(current_channel) in channel_options:
-                        selected_channel = str(current_channel)
-
-                with c_board:
-                    selected_board = st.selectbox(
-                        "board",
-                        board_options,
-                        index=board_options.index(selected_board),
-                        key=f"setup_board_{index}",
-                        label_visibility="collapsed",
-                    )
-                with c_channel:
-                    selected_channel = st.selectbox(
-                        "channel",
-                        channel_options,
-                        index=channel_options.index(selected_channel),
-                        key=f"setup_channel_{index}",
-                        label_visibility="collapsed",
-                    )
-                if selected_board == "-" or selected_channel == "-":
-                    row["slot_id"] = None
-                    row["slot_code"] = ""
-                else:
-                    slot_id = slot_by_board_channel.get(
-                        (int(selected_board), int(selected_channel))
-                    )
-                    row["slot_id"] = slot_id
-                    row["slot_code"] = (
-                        next(
-                            (
-                                slot_code
-                                for candidate_slot_id, slot_code in slot_options
-                                if candidate_slot_id == slot_id
-                            ),
-                            "",
-                        )
-                        if slot_id is not None
-                        else ""
-                    )
-            else:
-                with c_slot:
-                    current_slot_code = row.get("slot_code", "")
-                    selected_slot_code = (
-                        current_slot_code
-                        if current_slot_code in slot_codes
-                        else "(none)"
-                    )
-                    selected_slot_code = st.selectbox(
-                        "slot",
-                        slot_select_options,
-                        index=slot_select_options.index(selected_slot_code),
-                        key=f"setup_slot_{index}",
-                        label_visibility="collapsed",
-                    )
-                    if selected_slot_code == "(none)":
-                        row["slot_id"] = None
-                        row["slot_code"] = ""
-                    else:
-                        row["slot_code"] = selected_slot_code
-                        row["slot_id"] = next(
-                            slot_id
-                            for slot_id, slot_code in slot_options
-                            if slot_code == selected_slot_code
-                        )
-
-            with c_mode:
-                if mode_names:
-                    default_mode_code = row.get("mode_code") or mode_names[0]
-                    selected_mode = st.selectbox(
-                        "mode",
-                        mode_names,
-                        index=mode_names.index(default_mode_code)
-                        if default_mode_code in mode_names
-                        else 0,
-                        key=f"setup_mode_{index}",
-                        label_visibility="collapsed",
-                    )
-                    row["mode_code"] = selected_mode
-                    row["mode_id"] = mode_id_by_code[selected_mode]
-                else:
-                    row["mode_code"] = ""
-                    row["mode_id"] = None
-                    st.caption("No modes available")
-
-            with c_polarity:
-                selected_polarity = st.selectbox(
-                    "polarity",
-                    polarity_names,
-                    key=f"setup_polarity_{index}",
-                    label_visibility="collapsed",
-                )
-                row["polarity_id"] = polarity_options[selected_polarity]
-
-            with c_sensors:
-                selected_sensor_labels = st.multiselect(
-                    "sensors",
-                    sensor_labels,
-                    default=[
-                        label_by_sensor_id[sensor_id]
-                        for sensor_id in row["sensor_ids"]
-                        if sensor_id in label_by_sensor_id
-                    ],
-                    key=f"setup_sensors_{index}",
-                    label_visibility="collapsed",
-                )
-                row["sensor_display"] = selected_sensor_labels
-                row["sensor_ids"] = [
-                    sensor_id_by_label[label] for label in selected_sensor_labels
-                ]
-
-            with c_meta:
-                if row["is_new"]:
-                    _has_meta = (
-                        bool(
-                            st.session_state.get(f"setup_meta_area_{index}", "").strip()
-                        )
-                        or st.session_state.get(
-                            f"setup_meta_manufacturer_{index}", "(none)"
-                        )
-                        != "(none)"
-                        or st.session_state.get(f"setup_meta_owner_{index}", "(none)")
-                        != "(none)"
-                        or st.session_state.get(
-                            f"setup_meta_group_{index}", "(standalone)"
-                        )
-                        != "(standalone)"
-                        or bool(
-                            st.session_state.get(
-                                f"setup_meta_position_{index}", ""
-                            ).strip()
-                        )
-                        or bool(
-                            st.session_state.get(
-                                f"setup_meta_nomad_{index}", ""
-                            ).strip()
-                        )
-                        or st.session_state.get(
-                            f"setup_meta_experiment_{index}", "(none)"
-                        )
-                        != "(none)"
-                        or st.session_state.get(
-                            f"setup_meta_cell_type_{index}", "(none)"
-                        )
-                        != "(none)"
-                        or bool(
-                            st.session_state.get(
-                                f"setup_meta_structure_{index}", ""
-                            ).strip()
-                        )
-                        or bool(
-                            st.session_state.get(
-                                f"setup_meta_pce_{index}", ""
-                            ).strip()
-                        )
-                    )
-                    with st.popover("📋✓" if _has_meta else "📋"):
-                        st.caption(f"Metadata for **{row['cell_name']}**")
-                        st.selectbox(
-                            "Cell type",
-                            list(cell_type_options.keys()),
-                            key=f"setup_meta_cell_type_{index}",
-                        )
-                        st.text_input(
-                            "Area (cm²)",
-                            placeholder="e.g. 0.16",
-                            key=f"setup_meta_area_{index}",
-                        )
-                        st.text_input(
-                            "Initial PCE (%)",
-                            placeholder="e.g. 18.5",
-                            key=f"setup_meta_pce_{index}",
-                        )
-                        st.text_input(
-                            "Structure",
-                            placeholder="e.g. ITO/NiOx/Pero/C60/BCP/Ag",
-                            key=f"setup_meta_structure_{index}",
-                        )
-                        st.selectbox(
-                            "Owner",
-                            list(scientist_options.keys()),
-                            key=f"setup_meta_owner_{index}",
-                        )
-                        st.selectbox(
-                            "Manufacturer",
-                            list(scientist_options.keys()),
-                            key=f"setup_meta_manufacturer_{index}",
-                        )
-                        st.selectbox(
-                            "Experiment",
-                            list(experiment_options.keys()),
-                            key=f"setup_meta_experiment_{index}",
-                        )
-                        st.selectbox(
-                            "Group",
-                            list(group_options.keys()),
-                            key=f"setup_meta_group_{index}",
-                        )
-                        st.text_input(
-                            "Position in group",
-                            placeholder="P1, top, ...",
-                            key=f"setup_meta_position_{index}",
-                        )
-                        st.text_input(
-                            "NOMAD entry URL", key=f"setup_meta_nomad_{index}"
-                        )
-
-            with c_disconnect:
-                _has_disconnect = st.session_state.get(f"setup_disconnect_{index}") is not None
-                with st.popover("↩✓" if _has_disconnect else "↩"):
-                    st.caption(f"Disconnect date for **{row['cell_name']}**")
-                    st.date_input(
-                        "Disconnect date (optional)",
-                        value=None,
-                        key=f"setup_disconnect_{index}",
-                    )
-
-            with c_delete:
-                if st.button("✕", key=f"setup_delete_{index}"):
-                    rows_to_remove.append(index)
-
-        for index in reversed(rows_to_remove):
-            st.session_state.setup.pop(index)
-        if rows_to_remove:
-            st.rerun()
+    st.caption(
+        "Metadata columns (Cell type, Area, Owner, ...) are pre-filled with a "
+        "cell's current registry values when added via 'Add cell(s) to list' "
+        "above, and are written back as-is unless you change them. Rows typed "
+        "directly into the grid should only be used for genuinely new cells."
+    )
 
     st.divider()
-    if st.button(
-        "Submit setup events",
-        type="primary",
-        disabled=not st.session_state.setup,
+
+    if "setup_validation_snapshot" in st.session_state and not edited_df.equals(
+        st.session_state.setup_validation_snapshot
     ):
-        errors = []
+        st.session_state.pop("setup_validation", None)
+        st.session_state.pop("setup_validation_snapshot", None)
+
+    if st.button("Validate rows", key="setup_validate"):
+        mode_id_by_code = {code: mode_id for mode_id, code in load_modes()}
+        errors, resolved_rows, preview_rows = _resolve_setup_rows(
+            edited_df,
+            use_board_channel,
+            slot_by_board_channel,
+            slot_id_by_code,
+            mode_id_by_code,
+            polarity_options,
+            cell_type_options,
+            scientist_options,
+            group_options,
+            experiment_options,
+            temp_sensor_id_by_label,
+            irradiance_sensor_id_by_label,
+            st.session_state.setup_preset_sensor_ids,
+        )
+        st.session_state.setup_validation = {
+            "errors": errors,
+            "resolved_rows": resolved_rows,
+            "preview_rows": preview_rows,
+        }
+        st.session_state.setup_validation_snapshot = edited_df.copy()
+
+    validation = st.session_state.get("setup_validation")
+    if validation is not None:
+        preview_rows = validation["preview_rows"]
+        if not preview_rows:
+            st.info("No rows to submit.")
+        else:
+            n_new = sum(1 for row in preview_rows if row["action"] == "new cell")
+            n_existing = len(preview_rows) - n_new
+            st.caption(
+                f"{len(preview_rows)} row(s) validated — {n_new} new cell(s) will "
+                f"be created, {n_existing} existing cell(s) will be updated."
+            )
+            st.dataframe(preview_rows, use_container_width=True)
+        if validation["errors"]:
+            for error in validation["errors"]:
+                st.error(error)
+    else:
+        st.caption("Run Validate rows before submitting.")
+
+    can_submit = (
+        validation is not None
+        and not validation["errors"]
+        and validation["resolved_rows"]
+    )
+    if st.button("Submit setup events", type="primary", disabled=not can_submit):
+        resolved_rows = validation["resolved_rows"]
         db_rows_mpp = []
         db_rows_sensor = []
 
@@ -675,7 +790,9 @@ def _render_setup_tab():
                     _parse_optional_float(pce_text) if pce_text.strip() else None
                 )
             except ValueError:
-                errors.append(f"{row['cell_name']}: initial PCE must be a valid number.")
+                errors.append(
+                    f"{row['cell_name']}: initial PCE must be a valid number."
+                )
                 initial_pce = None
             row_meta.append(
                 {
@@ -747,8 +864,10 @@ def _render_setup_tab():
                             "slot_id": row["slot_id"],
                             "event_type": "connection",
                             "mode_id": row["mode_id"],
-                            "polarity_id": row.get("polarity_id"),
-                            "occurred_at": to_timestamptz(connect_date, "connection"),
+                            "polarity_id": row["polarity_id"],
+                            "timestamp": to_timestamptz(
+                                row["connect_date"], "connection"
+                            ),
                         }
                     )
                     if disconnect_date is not None:
@@ -759,7 +878,9 @@ def _render_setup_tab():
                                 "event_type": "disconnection",
                                 "mode_id": None,
                                 "polarity_id": None,
-                                "occurred_at": to_timestamptz(disconnect_date, "disconnection"),
+                                "timestamp": to_timestamptz(
+                                    row["disconnect_date"], "disconnection"
+                                ),
                             }
                         )
 
@@ -770,7 +891,9 @@ def _render_setup_tab():
                             "sensor_id": sensor_id,
                             "event_type": "association",
                             "specification": None,
-                            "occurred_at": to_timestamptz(connect_date, "association"),
+                            "timestamp": to_timestamptz(
+                                row["connect_date"], "association"
+                            ),
                         }
                     )
                     if disconnect_date is not None:
@@ -780,7 +903,9 @@ def _render_setup_tab():
                                 "sensor_id": sensor_id,
                                 "event_type": "dissociation",
                                 "specification": None,
-                                "occurred_at": to_timestamptz(disconnect_date, "dissociation"),
+                                "timestamp": to_timestamptz(
+                                    row["disconnect_date"], "dissociation"
+                                ),
                             }
                         )
 
@@ -788,7 +913,8 @@ def _render_setup_tab():
             insert_sensor_association_events(db_rows_sensor)
             n_cells = len(st.session_state.setup)
             n_disconnects = sum(
-                1 for i in range(n_cells)
+                1
+                for i in range(n_cells)
                 if st.session_state.get(f"setup_disconnect_{i}") is not None
             )
             msg = (
@@ -796,7 +922,9 @@ def _render_setup_tab():
                 f"{len(db_rows_sensor)} sensor event(s) for {n_cells} cell(s)."
             )
             if n_disconnects:
-                msg += f" ({n_disconnects} row(s) include disconnect/dissociate events.)"
+                msg += (
+                    f" ({n_disconnects} row(s) include disconnect/dissociate events.)"
+                )
             st.success(msg)
             st.session_state.setup = []
             _clear_and_rerun()
@@ -942,7 +1070,7 @@ def _render_teardown_tab():
                             "event_type": "disconnection",
                             "mode_id": None,
                             "polarity_id": None,
-                            "occurred_at": to_timestamptz(event_date, "disconnection"),
+                            "timestamp": to_timestamptz(event_date, "disconnection"),
                         }
                     )
 
@@ -953,7 +1081,7 @@ def _render_teardown_tab():
                             "sensor_id": sensor_id,
                             "event_type": "dissociation",
                             "specification": None,
-                            "occurred_at": to_timestamptz(event_date, "dissociation"),
+                            "timestamp": to_timestamptz(event_date, "dissociation"),
                         }
                     )
 
@@ -990,7 +1118,7 @@ def _render_corrections_tab():
     st.dataframe(
         [
             {
-                "occurred_at": event["occurred_at"],
+                "timestamp": event["timestamp"],
                 "event": event["event_type"],
                 "cell": event["cell_name"],
                 "tracker": event["tracker_name"],
@@ -1011,7 +1139,7 @@ def _render_corrections_tab():
 
     event_labels = {
         (
-            f"{event['occurred_at']:%Y-%m-%d %H:%M} — {event['event_type']} — "
+            f"{event['timestamp']:%Y-%m-%d %H:%M} — {event['event_type']} — "
             f"{event['cell_name']} @ {event['tracker_name']}/{event['slot_code']}"
         ): event["id"]
         for event in deletable
