@@ -15,7 +15,9 @@ ALTER TABLE sensor_association_event
         ON DELETE CASCADE;
         
 ALTER TABLE solar_cell_group
-    RENAME cell_id TO solar_cell_id;
+    RENAME COLUMN cell_id TO solar_cell_id;
+
+ALTER TABLE solar_cell_group
     RENAME CONSTRAINT solar_cell_group_cell_id_fkey TO solar_cell_group_solar_cell_id_fkey;
 
 ALTER TABLE solar_cell_group
