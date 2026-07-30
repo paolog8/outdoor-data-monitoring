@@ -40,13 +40,13 @@ Create a new Flyway migration (`V{N}__<description>.sql`) that adds:
 - A hypertable for measurements:
   ```sql
   CREATE TABLE my_measurement (
-      time          TIMESTAMPTZ NOT NULL,
+      timestamp     TIMESTAMPTZ NOT NULL,
       my_sensor_id  BIGINT NOT NULL REFERENCES my_sensor(id),
       value         DOUBLE PRECISION NOT NULL,
       ...
-      UNIQUE (my_sensor_id, time)
+      UNIQUE (my_sensor_id, timestamp)
   );
-  SELECT create_hypertable('my_measurement', 'time');
+  SELECT create_hypertable('my_measurement', 'timestamp');
   ```
 - Any UNIQUE constraints or indexes needed for idempotent upserts.
 
@@ -69,7 +69,7 @@ Returns a list of tuples, one per data row. Skips malformed rows with `logger.wa
 Follow the same TSV-reader pattern as `parse_temperature_file` in `temperature.py`.
 
 **`ingest_my_sensor_measurements(cur, sensor_id, rows, batch_size, dry_run) -> int`**
-Batch-inserts via `psycopg2.extras.execute_values` with `ON CONFLICT (my_sensor_id, time) DO NOTHING`.
+Batch-inserts via `psycopg2.extras.execute_values` with `ON CONFLICT (my_sensor_id, timestamp) DO NOTHING`.
 Returns the row count actually written (`cur.rowcount`).
 
 **`ingest_my_sensor_folder(conn, folder_path, batch_size, dry_run) -> int`**
@@ -136,9 +136,9 @@ Check `ingestion_log` for `status='completed'` entries and `rows_inserted > 0`.
 The `mpp_measurement` hypertable references `mpp_tracking_slot` by integer id. Since device data arrives identified by `(mpp_tracker_id, slot_code)` rather than an id, use the following single-statement pattern to resolve the slot and insert the measurement in one DB round trip — no application-side id lookup needed.
 
 ```sql
-INSERT INTO mpp_measurement (time, mpp_tracking_slot_id, voltage, current, power)
+INSERT INTO mpp_measurement (timestamp, mpp_tracking_slot_id, voltage, current, power)
 SELECT
-    $time,
+    $timestamp,
     s.id,
     $voltage,
     $current,
@@ -173,9 +173,9 @@ Sensor identity comes from the hex serial number in the filename. Sensors are up
 (constraint `uq_temperature_sensor_serial_number`).
 
 ```sql
-INSERT INTO temperature_measurement (time, temperature_sensor_id, temperature)
+INSERT INTO temperature_measurement (timestamp, temperature_sensor_id, temperature)
 VALUES %s
-ON CONFLICT (temperature_sensor_id, time) DO NOTHING;
+ON CONFLICT (temperature_sensor_id, timestamp) DO NOTHING;
 ```
 
 ## Irradiance ingestion
@@ -191,9 +191,9 @@ Sensor identity comes from the channel number in the filename (stored as `serial
 unique key (constraint `uq_irradiance_sensor_serial_number`).
 
 ```sql
-INSERT INTO irradiance_measurement (time, irradiance_sensor_id, irradiance, raw_value)
+INSERT INTO irradiance_measurement (timestamp, irradiance_sensor_id, irradiance, raw_value)
 VALUES %s
-ON CONFLICT (irradiance_sensor_id, time) DO NOTHING;
+ON CONFLICT (irradiance_sensor_id, timestamp) DO NOTHING;
 ```
 
 ## Spectral ingestion
@@ -236,9 +236,9 @@ Sensor identity is determined by model name (serial_number = model name), so the
 
 ```sql
 INSERT INTO spectral_measurement
-    (time, spectral_sensor_id, irradiance_w_m2_um, exposure_time_ms, sensor_temp_c, power_v)
+    (timestamp, spectral_sensor_id, irradiance_w_m2_um, exposure_time_ms, sensor_temp_c, power_v)
 VALUES %s
-ON CONFLICT (spectral_sensor_id, time) DO NOTHING;
+ON CONFLICT (spectral_sensor_id, timestamp) DO NOTHING;
 ```
 
 ### Reconstruct a spectrum from stored arrays
@@ -249,7 +249,7 @@ SELECT s.model, w.wavelength_nm, m.irr
 FROM spectral_measurement m
 JOIN spectral_sensor s ON s.id = m.spectral_sensor_id
 JOIN LATERAL unnest(s.wavelengths_nm, m.irradiance_w_m2_um) AS w(wavelength_nm, irr) ON true
-WHERE m.time = '2026-02-01 12:00:00+00'
+WHERE m.timestamp = '2026-02-01 12:00:00+00'
 ORDER BY s.model, w.wavelength_nm;
 ```
 
@@ -263,7 +263,7 @@ SELECT wavelength_nm, SUM(irr) AS combined_irradiance_w_m2_um
 FROM spectral_measurement m
 JOIN spectral_sensor s ON s.id = m.spectral_sensor_id
 JOIN LATERAL unnest(s.wavelengths_nm, m.irradiance_w_m2_um) AS w(wavelength_nm, irr) ON true
-WHERE m.time = '2026-02-01 12:00:00+00'
+WHERE m.timestamp = '2026-02-01 12:00:00+00'
 GROUP BY wavelength_nm
 ORDER BY wavelength_nm;
 ```
@@ -292,7 +292,7 @@ SELECT * FROM mpp_measurements_for_cell('Cell_A', '2024-06-01', '2024-07-01');
 
 | Column | Type | Meaning |
 |---|---|---|
-| `time` | `TIMESTAMPTZ` | Timestamp of the measurement (or bucket start when downsampling) |
+| `timestamp` | `TIMESTAMPTZ` | Timestamp of the measurement (or bucket start when downsampling) |
 | `mode_code` | `TEXT` | Connection mode: `'mpp_tracking'`, `'short_circuit'`, or `'open_circuit'` |
 | `voltage` | `DOUBLE PRECISION` | Voltage in Volts |
 | `current_a` | `DOUBLE PRECISION` | Current in Amps |
@@ -341,7 +341,7 @@ Raw path matches each MPP reading to the sensor reading at the exact same timest
 Spectral sensors are not included — their measurements are per-wavelength arrays, not a scalar, so they don't fit this row shape.
 
 In bucketed mode:
-- `time` is the **start** of the bucket window, not the exact time of any individual measurement.
+- `timestamp` is the **start** of the bucket window, not the exact time of any individual measurement.
 - `voltage`, `current_a`, `power_mw` are the **averages** of all raw values that fell in that window.
 - `mode_code` is the **most frequent** mode in the window (almost always a single mode, but edge cases around reconnection events are handled gracefully).
 
@@ -366,12 +366,12 @@ by finding the latest event for a given cell or slot — there is no separate "c
 **What cell is currently in slot X?**
 
 ```sql
-SELECT e.solar_cell_id, c.name, e.mode_id, m.code AS mode, e.specification, e.occurred_at
+SELECT e.solar_cell_id, c.name, e.mode_id, m.code AS mode, e.specification, e.timestamp
 FROM mpp_connection_event e
 JOIN solar_cell c ON c.id = e.solar_cell_id
 LEFT JOIN mpp_connection_mode m ON m.id = e.mode_id
 WHERE e.mpp_tracking_slot_id = $slot_id
-ORDER BY e.occurred_at DESC
+ORDER BY e.timestamp DESC
 LIMIT 1;
 -- Returns NULL (no rows) if no events exist, or check that event_type = 'connection'
 -- to confirm the slot currently has a cell (not just disconnected).
@@ -380,17 +380,17 @@ LIMIT 1;
 **What slot is cell X currently connected to?**
 
 ```sql
-SELECT e.mpp_tracking_slot_id, s.slot_code, e.mode_id, m.code AS mode, e.occurred_at
+SELECT e.mpp_tracking_slot_id, s.slot_code, e.mode_id, m.code AS mode, e.timestamp
 FROM mpp_connection_event e
 JOIN mpp_tracking_slot s ON s.id = e.mpp_tracking_slot_id
 LEFT JOIN mpp_connection_mode m ON m.id = e.mode_id
 WHERE e.solar_cell_id = $cell_id
-ORDER BY e.occurred_at DESC
+ORDER BY e.timestamp DESC
 LIMIT 1;
 -- Check event_type = 'connection' to confirm cell is currently connected.
 ```
 
-Both queries use the `(solar_cell_id, occurred_at DESC)` and `(mpp_tracking_slot_id, occurred_at DESC)`
+Both queries use the `(solar_cell_id, timestamp DESC)` and `(mpp_tracking_slot_id, timestamp DESC)`
 indexes on `mpp_connection_event` respectively.
 
 ## Sensor association tracking
@@ -406,11 +406,11 @@ Current association state is derived by finding the latest event, same pattern a
 **Which temperature sensor is currently monitoring cell X?**
 
 ```sql
-SELECT ts.name, ts.serial_number, e.specification, e.occurred_at
+SELECT ts.name, ts.serial_number, e.specification, e.timestamp
 FROM sensor_association_event e
 JOIN temperature_sensor ts ON ts.sensor_id = e.sensor_id
 WHERE e.solar_cell_id = $cell_id
-ORDER BY e.occurred_at DESC
+ORDER BY e.timestamp DESC
 LIMIT 1;
 -- Check event_type = 'association' to confirm currently active.
 ```
@@ -420,12 +420,12 @@ Replace the JOIN with `irradiance_sensor` for irradiance sensor queries.
 **All sensors (any type) currently associated with cell X:**
 
 ```sql
-SELECT s.sensor_type, e.sensor_id, e.occurred_at
+SELECT s.sensor_type, e.sensor_id, e.timestamp
 FROM sensor_association_event e
 JOIN sensor s ON s.id = e.sensor_id
 WHERE e.solar_cell_id = $cell_id
   AND e.event_type = 'association'
-ORDER BY e.occurred_at DESC;
+ORDER BY e.timestamp DESC;
 ```
 
 This cross-type query works without UNION because all sensor types share the `sensor` parent table.

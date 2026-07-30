@@ -142,13 +142,13 @@ SELECT
     m.position_in_group,
     e.event_type,
     mcm.code AS mode_code,
-    e.occurred_at
+    e.timestamp
 FROM members m
 LEFT JOIN LATERAL (
-    SELECT event_type, mode_id, occurred_at
+    SELECT event_type, mode_id, timestamp
     FROM   mpp_connection_event
     WHERE  solar_cell_id = m.cell_id
-    ORDER BY occurred_at DESC
+    ORDER BY timestamp DESC
     LIMIT 1
 ) e ON true
 LEFT JOIN mpp_connection_mode mcm ON mcm.id = e.mode_id
