@@ -7,7 +7,7 @@ ALTER TABLE mpp_connection_event
         REFERENCES solar_cell(id)
         ON DELETE CASCADE;
 
-ALTER TABLE sensor_connection_event
+ALTER TABLE sensor_association_event
     DROP CONSTRAINT sensor_association_event_solar_cell_id_fkey,
     ADD CONSTRAINT sensor_association_event_solar_cell_id_fkey
         FOREIGN KEY (solar_cell_id)
