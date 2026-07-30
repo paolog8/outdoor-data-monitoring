@@ -1,0 +1,21 @@
+# Reference only — not mounted into Grafana.
+# The outdoor_monitoring datasource is provisioned via the NFS mount.
+# This file documents the connection details and UID for use in dashboard JSON.
+#
+# To find or verify the UID: Grafana → Connections → Data sources → outdoor_monitoring → URL
+
+apiVersion: 1
+
+datasources:
+  - name: outdoor_monitoring
+    uid: ffk21zlrlrqioe
+    type: postgres
+    url: timescaledb:5432
+    user: ${DB_USER}
+    secureJsonData:
+      password: ${DB_PASSWORD}
+    jsonData:
+      database: outdoor_monitoring
+      sslmode: disable
+      postgresVersion: 1500
+      timescaledb: true

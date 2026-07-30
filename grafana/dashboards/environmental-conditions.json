@@ -1,0 +1,170 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": { "type": "grafana", "uid": "-- Grafana --" },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "description": "Environmental deep-dive — per-sensor irradiance and cell temperature, plus daily insolation. Temperature sensors measure CELL temperature, not ambient.",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 2,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "id": 1,
+      "title": "Irradiance per Sensor",
+      "description": "Each irradiance sensor plotted separately (name + location). Adaptive time bucket.",
+      "type": "timeseries",
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 0 },
+      "datasource": { "type": "postgres", "uid": "ffk21zlrlrqioe" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "postgres", "uid": "ffk21zlrlrqioe" },
+          "rawSql": "SELECT\n  time_bucket(INTERVAL '1 millisecond' * $__interval_ms, m.time) AS time,\n  s.name || COALESCE(' (' || s.location || ')', '') AS metric,\n  AVG(m.irradiance) AS \"Irradiance\"\nFROM irradiance_measurement m\nJOIN irradiance_sensor s ON s.id = m.irradiance_sensor_id\nWHERE $__timeFilter(m.time)\nGROUP BY 1, 2\nORDER BY 1, 2",
+          "format": "time_series"
+        }
+      ],
+      "options": {
+        "tooltip": { "mode": "multi", "sort": "desc" },
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true, "calcs": [] }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisLabel": "Irradiance (W/m²)",
+            "axisPlacement": "auto",
+            "drawStyle": "line",
+            "fillOpacity": 8,
+            "gradientMode": "none",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": { "type": "linear" },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": { "group": "A", "mode": "none" },
+            "thresholdsStyle": { "mode": "off" }
+          },
+          "mappings": [],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] },
+          "unit": "wm2"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 2,
+      "title": "Cell Temperature per Sensor",
+      "description": "Each temperature sensor plotted separately (name + location). These are CELL temperatures, not ambient. The -999 sensor-error sentinel is filtered out.",
+      "type": "timeseries",
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 10 },
+      "datasource": { "type": "postgres", "uid": "ffk21zlrlrqioe" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "postgres", "uid": "ffk21zlrlrqioe" },
+          "rawSql": "SELECT\n  time_bucket(INTERVAL '1 millisecond' * $__interval_ms, m.time) AS time,\n  s.name || COALESCE(' (' || s.location || ')', '') AS metric,\n  AVG(m.temperature) AS \"Cell Temperature\"\nFROM temperature_measurement m\nJOIN temperature_sensor s ON s.id = m.temperature_sensor_id\nWHERE $__timeFilter(m.time)\n  AND m.temperature > -999\nGROUP BY 1, 2\nORDER BY 1, 2",
+          "format": "time_series"
+        }
+      ],
+      "options": {
+        "tooltip": { "mode": "multi", "sort": "desc" },
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true, "calcs": [] }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisLabel": "Cell Temperature (°C)",
+            "axisPlacement": "auto",
+            "drawStyle": "line",
+            "fillOpacity": 8,
+            "gradientMode": "none",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": { "type": "linear" },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": { "group": "A", "mode": "none" },
+            "thresholdsStyle": { "mode": "off" }
+          },
+          "mappings": [],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] },
+          "unit": "celsius"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 3,
+      "title": "Daily Insolation",
+      "description": "Approximate daily irradiation energy: average irradiance over each day × 24 h, averaged across sensors. Useful for normalizing production across days.",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 20 },
+      "datasource": { "type": "postgres", "uid": "ffk21zlrlrqioe" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "postgres", "uid": "ffk21zlrlrqioe" },
+          "rawSql": "SELECT\n  time_bucket('1 day', time) AS time,\n  AVG(irradiance) * 24 / 1000 AS \"Insolation\"\nFROM irradiance_measurement\nWHERE $__timeFilter(time)\nGROUP BY 1\nORDER BY 1",
+          "format": "time_series"
+        }
+      ],
+      "options": {
+        "tooltip": { "mode": "single", "sort": "none" },
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": false, "calcs": [] }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "fixed", "fixedColor": "#FF9830" },
+          "custom": {
+            "axisLabel": "kWh/m²/day",
+            "axisPlacement": "auto",
+            "drawStyle": "bars",
+            "fillOpacity": 60,
+            "gradientMode": "none",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": { "type": "linear" },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": { "group": "A", "mode": "none" },
+            "thresholdsStyle": { "mode": "off" }
+          },
+          "mappings": [],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] },
+          "unit": "kwattm2",
+          "decimals": 2
+        },
+        "overrides": []
+      }
+    }
+  ],
+  "refresh": "",
+  "schemaVersion": 39,
+  "tags": ["environment", "sensors"],
+  "templating": { "list": [] },
+  "time": { "from": "now-7d", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Environmental Conditions",
+  "uid": "outdoor-environmental-conditions",
+  "version": 1,
+  "weekStart": ""
+}

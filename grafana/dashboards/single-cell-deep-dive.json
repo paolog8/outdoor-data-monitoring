@@ -1,0 +1,877 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      },
+      {
+        "datasource": {
+          "type": "postgres",
+          "uid": "ffk21zlrlrqioe"
+        },
+        "enable": true,
+        "hide": false,
+        "iconColor": "#FF9830",
+        "name": "Connection events",
+        "target": {
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT\n  e.occurred_at AS time,\n  e.event_type || ' — ' || t.name || '/' || s.slot_code ||\n    COALESCE(' (' || mcm.code || COALESCE(', ' || mp.code, '') || ')', '') AS text,\n  e.event_type AS tags\nFROM mpp_connection_event e\nJOIN solar_cell sc ON sc.id = e.solar_cell_id\nJOIN mpp_tracking_slot s ON s.id = e.mpp_tracking_slot_id\nJOIN mpp_tracker t ON t.id = s.mpp_tracker_id\nLEFT JOIN mpp_connection_mode mcm ON mcm.id = e.mode_id\nLEFT JOIN mpp_polarity mp ON mp.id = e.polarity_id\nWHERE sc.name = '$cell'\n  AND $__timeFilter(e.occurred_at)",
+          "refId": "Anno"
+        }
+      }
+    ]
+  },
+  "description": "Per-cell deep dive — power, voltage, current and power-conversion efficiency (PCE) for a single selected solar cell, scoped to its active connection intervals.",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "id": 1,
+      "title": "Cell Details",
+      "description": "Registry metadata for the selected cell",
+      "type": "table",
+      "gridPos": {
+        "h": 4,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "ffk21zlrlrqioe"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "ffk21zlrlrqioe"
+          },
+          "rawSql": "SELECT\n  sc.name              AS \"Cell\",\n  sct.code             AS \"Type\",\n  sc.structure         AS \"Structure\",\n  sc.area_cm2          AS \"Area (cm²)\",\n  sc.initial_pce       AS \"Initial PCE (%)\",\n  man.name             AS \"Manufacturer\",\n  own.name             AS \"Owner\",\n  sc.id_pvcomb         AS \"PVcomB ID\",\n  act.first_conn       AS \"Active From\",\n  act.last_event       AS \"Active Until\",\n  sc.nomad_entry_url   AS \"NOMAD\"\nFROM solar_cell sc\nLEFT JOIN solar_cell_type sct ON sct.id = sc.cell_type_id\nLEFT JOIN scientist man       ON man.id = sc.manufacturer_id\nLEFT JOIN scientist own       ON own.id = sc.owner_id\nLEFT JOIN LATERAL (\n  SELECT MIN(occurred_at) AS first_conn, MAX(occurred_at) AS last_event\n  FROM mpp_connection_event ce\n  WHERE ce.solar_cell_id = sc.id\n) act ON true\nWHERE sc.name = '$cell'",
+          "format": "table"
+        }
+      ],
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "show": false,
+          "reducer": [
+            "sum"
+          ],
+          "countRows": false,
+          "fields": ""
+        },
+        "showHeader": true
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "left",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": false,
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Area (cm²)"
+            },
+            "properties": [
+              {
+                "id": "decimals",
+                "value": 3
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Initial PCE (%)"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "Active From|Active Until"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTimeAsIso"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "NOMAD"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "auto"
+                }
+              },
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "Open NOMAD entry",
+                    "url": "${__value.text}",
+                    "targetBlank": true
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": 2,
+      "title": "Peak Power",
+      "description": "Maximum instantaneous power over the selected range",
+      "type": "stat",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 4
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "ffk21zlrlrqioe"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "ffk21zlrlrqioe"
+          },
+          "rawSql": "SELECT MAX(power_mw) AS value\nFROM mpp_measurements_for_cell('$cell', $__timeFrom(), $__timeTo(), INTERVAL '1 millisecond' * $__interval_ms)",
+          "format": "table"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "wideLayout": true,
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#73BF69"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "#73BF69",
+                "value": null
+              }
+            ]
+          },
+          "unit": "mwatt",
+          "decimals": 2
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 3,
+      "title": "Average Power",
+      "description": "Mean power over the selected range",
+      "type": "stat",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 4
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "ffk21zlrlrqioe"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "ffk21zlrlrqioe"
+          },
+          "rawSql": "SELECT AVG(power_mw) AS value\nFROM mpp_measurements_for_cell('$cell', $__timeFrom(), $__timeTo(), INTERVAL '1 millisecond' * $__interval_ms)",
+          "format": "table"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "wideLayout": true,
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#FF9830"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "#FF9830",
+                "value": null
+              }
+            ]
+          },
+          "unit": "mwatt",
+          "decimals": 2
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 4,
+      "title": "Average PCE",
+      "description": "Mean power-conversion efficiency over the range. PCE(%) = 1000 × P[mW] / (irradiance[W/m²] × area[cm²]). MPP-tracking mode only, irradiance > $min_irr W/m².",
+      "type": "stat",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 4
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "ffk21zlrlrqioe"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "ffk21zlrlrqioe"
+          },
+          "rawSql": "WITH p AS (\n  SELECT mfc.measured_at AS t, mfc.power_mw\n  FROM mpp_measurements_for_cell('$cell', $__timeFrom(), $__timeTo(), INTERVAL '1 millisecond' * $__interval_ms) mfc\n  WHERE mfc.mode_code = 'mpp_tracking'\n),\nirr AS (\n  SELECT time_bucket(INTERVAL '1 millisecond' * $__interval_ms, time) AS t, AVG(irradiance) AS irr\n  FROM irradiance_measurement\n  WHERE $__timeFilter(time) AND irradiance > $min_irr\n  GROUP BY 1\n),\narea AS (SELECT area_cm2 FROM solar_cell WHERE name = '$cell')\nSELECT AVG(1000.0 * p.power_mw / NULLIF(irr.irr * a.area_cm2, 0)) AS value\nFROM p JOIN irr ON p.t = irr.t CROSS JOIN area a",
+          "format": "table"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "wideLayout": true,
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#1F9CBD"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "#1F9CBD",
+                "value": null
+              }
+            ]
+          },
+          "unit": "percent",
+          "decimals": 2
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 5,
+      "title": "Peak PCE",
+      "description": "Maximum 5-minute-averaged power-conversion efficiency over the range. PCE(%) = 1000 × P[mW] / (irradiance[W/m²] × area[cm²]). MPP-tracking mode only, irradiance > $min_irr W/m².",
+      "type": "stat",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 4
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "ffk21zlrlrqioe"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "ffk21zlrlrqioe"
+          },
+          "rawSql": "WITH p AS (\n  SELECT mfc.measured_at AS t, mfc.power_mw\n  FROM mpp_measurements_for_cell('$cell', $__timeFrom(), $__timeTo(), INTERVAL '1 millisecond' * $__interval_ms) mfc\n  WHERE mfc.mode_code = 'mpp_tracking'\n),\nirr AS (\n  SELECT time_bucket(INTERVAL '1 millisecond' * $__interval_ms, time) AS t, AVG(irradiance) AS irr\n  FROM irradiance_measurement\n  WHERE $__timeFilter(time) AND irradiance > $min_irr\n  GROUP BY 1\n),\narea AS (SELECT area_cm2 FROM solar_cell WHERE name = '$cell')\nSELECT MAX(1000.0 * p.power_mw / NULLIF(irr.irr * a.area_cm2, 0)) AS value\nFROM p JOIN irr ON p.t = irr.t CROSS JOIN area a",
+          "format": "table"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "wideLayout": true,
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#37872D"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "#37872D",
+                "value": null
+              }
+            ]
+          },
+          "unit": "percent",
+          "decimals": 2
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 6,
+      "title": "Power Over Time",
+      "description": "MPP power attributed to $cell during its active connection intervals",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 8
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "ffk21zlrlrqioe"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "ffk21zlrlrqioe"
+          },
+          "rawSql": "SELECT\n  measured_at AS time,\n  power_mw    AS \"Power\"\nFROM mpp_measurements_for_cell('$cell', $__timeFrom(), $__timeTo(), INTERVAL '1 millisecond' * $__interval_ms)\nORDER BY 1",
+          "format": "time_series"
+        }
+      ],
+      "options": {
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": false
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#73BF69"
+          },
+          "custom": {
+            "axisLabel": "Power (mW)",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 25,
+            "gradientMode": "opacity",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "mwatt"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 7,
+      "title": "Voltage & Current",
+      "description": "Voltage (left axis) and current (right axis) for $cell",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 17
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "ffk21zlrlrqioe"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "ffk21zlrlrqioe"
+          },
+          "rawSql": "SELECT\n  measured_at AS time,\n  voltage     AS \"Voltage (V)\",\n  current_a   AS \"Current (A)\"\nFROM mpp_measurements_for_cell('$cell', $__timeFrom(), $__timeTo(), INTERVAL '1 millisecond' * $__interval_ms)\nORDER BY 1",
+          "format": "time_series"
+        }
+      ],
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": false
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "opacity",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Voltage (V)"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#5794F2"
+                }
+              },
+              {
+                "id": "unit",
+                "value": "volt"
+              },
+              {
+                "id": "custom.axisLabel",
+                "value": "Voltage (V)"
+              },
+              {
+                "id": "custom.axisColorMode",
+                "value": "series"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Current (A)"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#B877D9"
+                }
+              },
+              {
+                "id": "unit",
+                "value": "amp"
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "custom.axisLabel",
+                "value": "Current (A)"
+              },
+              {
+                "id": "custom.axisColorMode",
+                "value": "series"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": 8,
+      "title": "Power Conversion Efficiency (PCE)",
+      "description": "PCE(%) = 1000 × P[mW] / (irradiance[W/m²] × area[cm²]), using the cell's registered area and global irradiance. MPP-tracking mode only, irradiance > $min_irr W/m² to suppress low-light noise. Buckets aligned to the panel interval.",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 17
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "ffk21zlrlrqioe"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "ffk21zlrlrqioe"
+          },
+          "rawSql": "WITH p AS (\n  SELECT mfc.measured_at AS t, mfc.power_mw\n  FROM mpp_measurements_for_cell('$cell', $__timeFrom(), $__timeTo(), INTERVAL '1 millisecond' * $__interval_ms) mfc\n  WHERE mfc.mode_code = 'mpp_tracking'\n),\nirr AS (\n  SELECT\n    time_bucket(INTERVAL '1 millisecond' * $__interval_ms, time) AS t,\n    AVG(irradiance) AS irr\n  FROM irradiance_measurement\n  WHERE $__timeFilter(time)\n    AND irradiance > $min_irr\n  GROUP BY 1\n),\narea AS (SELECT area_cm2 FROM solar_cell WHERE name = '$cell')\nSELECT\n  p.t AS time,\n  1000.0 * p.power_mw / NULLIF(irr.irr * a.area_cm2, 0) AS \"PCE (%)\"\nFROM p\nJOIN irr ON p.t = irr.t\nCROSS JOIN area a\nORDER BY 1",
+          "format": "time_series"
+        }
+      ],
+      "options": {
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": false
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#1F9CBD"
+          },
+          "custom": {
+            "axisLabel": "PCE (%)",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 15,
+            "gradientMode": "opacity",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "percent",
+          "decimals": 2
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 9,
+      "title": "Daily Energy Yield",
+      "description": "Energy produced per cm² per day (mpp_tracking periods only), from hourly server-side buckets. Days with partial data show only the recorded energy.",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 26
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "ffk21zlrlrqioe"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "ffk21zlrlrqioe"
+          },
+          "format": "time_series",
+          "rawSql": "SELECT\n  time_bucket('1 day', m.measured_at) AS time,\n  SUM(m.power_mw) / sc.area_cm2 AS \"Energy Yield\"\nFROM mpp_measurements_for_cell('$cell', $__timeFrom(), $__timeTo(), INTERVAL '1 hour') m\nCROSS JOIN (SELECT area_cm2 FROM solar_cell WHERE name = '$cell') sc\nWHERE m.mode_code = 'mpp_tracking'\nGROUP BY 1, sc.area_cm2\nORDER BY 1"
+        }
+      ],
+      "options": {
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": false,
+          "calcs": []
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#73BF69"
+          },
+          "custom": {
+            "axisLabel": "mWh/cm²/day",
+            "axisPlacement": "auto",
+            "drawStyle": "bars",
+            "fillOpacity": 60,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "none",
+          "decimals": 1
+        },
+        "overrides": []
+      }
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": [
+    "cell",
+    "analysis"
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "cell",
+        "label": "Solar Cell",
+        "type": "query",
+        "datasource": {
+          "type": "postgres",
+          "uid": "ffk21zlrlrqioe"
+        },
+        "definition": "SELECT name FROM solar_cell ORDER BY name",
+        "query": "SELECT name FROM solar_cell ORDER BY name",
+        "refresh": 1,
+        "sort": 1,
+        "multi": false,
+        "includeAll": false,
+        "current": {},
+        "options": [],
+        "hide": 0
+      },
+      {
+        "name": "min_irr",
+        "label": "Min Irradiance (W/m²)",
+        "description": "Irradiance floor for PCE panels — measurements below this are excluded to suppress low-light noise.",
+        "type": "textbox",
+        "query": "50",
+        "current": {
+          "text": "50",
+          "value": "50"
+        },
+        "options": [
+          {
+            "text": "50",
+            "value": "50",
+            "selected": true
+          }
+        ],
+        "hide": 0
+      }
+    ]
+  },
+  "time": {
+    "from": "2020-01-01T00:00:00.000Z",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Single Cell Deep-Dive",
+  "uid": "outdoor-single-cell",
+  "version": 1,
+  "weekStart": ""
+}

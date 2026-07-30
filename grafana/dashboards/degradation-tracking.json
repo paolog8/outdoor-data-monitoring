@@ -1,0 +1,529 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      },
+      {
+        "datasource": {
+          "type": "postgres",
+          "uid": "ffk21zlrlrqioe"
+        },
+        "enable": true,
+        "hide": false,
+        "iconColor": "#FF9830",
+        "name": "Connection events",
+        "target": {
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT\n  e.occurred_at AS time,\n  sc.name || ': ' || e.event_type || ' — ' || t.name || '/' || s.slot_code ||\n    COALESCE(' (' || mcm.code || COALESCE(', ' || mp.code, '') || ')', '') AS text,\n  e.event_type AS tags\nFROM mpp_connection_event e\nJOIN solar_cell sc ON sc.id = e.solar_cell_id\nJOIN mpp_tracking_slot s ON s.id = e.mpp_tracking_slot_id\nJOIN mpp_tracker t ON t.id = s.mpp_tracker_id\nLEFT JOIN mpp_connection_mode mcm ON mcm.id = e.mode_id\nLEFT JOIN mpp_polarity mp ON mp.id = e.polarity_id\nWHERE sc.name IN (${cell:sqlstring})\n  AND $__timeFilter(e.occurred_at)",
+          "refId": "Anno"
+        }
+      }
+    ]
+  },
+  "description": "Long-term cell performance vs. its own baseline. PCE is normalized to each cell's average PCE over an initial reference window (default: first 24h after connection), so degradation is comparable across cells with different starting efficiencies. Irradiance & cell temperature are shown alongside to help identify a 'normal weather' period for interpretation.",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 2,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "id": 1,
+      "title": "Normalized PCE (Degradation)",
+      "description": "PCE for each selected cell, normalized to 100% = its registered initial PCE (solar_cell.initial_pce, lab-measured under standard test conditions). For cells without a registered initial PCE, falls back to the cell's own average outdoor PCE during the first $baseline_hours hours after its first connection. MPP-tracking mode only, irradiance > $min_irr W/m². Server-side downsampled to the panel interval.",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "ffk21zlrlrqioe"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "ffk21zlrlrqioe"
+          },
+          "rawSql": "WITH cells AS (\n  SELECT name, area_cm2, initial_pce FROM solar_cell WHERE name IN (${cell:sqlstring})\n),\nbaseline_window AS (\n  SELECT c.name AS cell_name, c.area_cm2, c.initial_pce,\n    fc.start_time AS baseline_start,\n    fc.start_time + (${baseline_hours}::text || ' hours')::interval AS baseline_end\n  FROM cells c\n  CROSS JOIN LATERAL (\n    SELECT MIN(connected_at) AS start_time FROM mpp_connection_history(c.name)\n  ) fc\n),\nbaseline_power AS (\n  SELECT bw.cell_name, AVG(mfc.power_mw) AS avg_power\n  FROM baseline_window bw\n  CROSS JOIN LATERAL mpp_measurements_for_cell(bw.cell_name, bw.baseline_start, bw.baseline_end, NULL) mfc\n  WHERE mfc.mode_code = 'mpp_tracking'\n  GROUP BY bw.cell_name\n),\nbaseline_irr AS (\n  SELECT bw.cell_name, AVG(im.irradiance) AS avg_irr\n  FROM baseline_window bw\n  CROSS JOIN LATERAL (\n    SELECT irradiance FROM irradiance_measurement\n    WHERE time >= bw.baseline_start AND time < bw.baseline_end AND irradiance > ${min_irr}\n  ) im\n  GROUP BY bw.cell_name\n),\nreference_pce AS (\n  SELECT bw.cell_name,\n    COALESCE(\n      bw.initial_pce,\n      1000.0 * bp.avg_power / NULLIF(bi.avg_irr * bw.area_cm2, 0)\n    ) AS reference_pce\n  FROM baseline_window bw\n  LEFT JOIN baseline_power bp ON bp.cell_name = bw.cell_name\n  LEFT JOIN baseline_irr bi ON bi.cell_name = bw.cell_name\n),\np AS (\n  SELECT sc.name AS cell_name, sc.area_cm2,\n    mfc.measured_at AS t, mfc.power_mw\n  FROM solar_cell sc\n  CROSS JOIN LATERAL mpp_measurements_for_cell(sc.name, $__timeFrom(), $__timeTo(), INTERVAL '1 millisecond' * $__interval_ms) mfc\n  WHERE sc.name IN (${cell:sqlstring})\n    AND mfc.mode_code = 'mpp_tracking'\n),\nirr AS (\n  SELECT time_bucket(INTERVAL '1 millisecond' * $__interval_ms, time) AS t, AVG(irradiance) AS irr\n  FROM irradiance_measurement\n  WHERE $__timeFilter(time)\n    AND irradiance > ${min_irr}\n  GROUP BY 1\n)\nSELECT\n  p.t        AS time,\n  p.cell_name AS metric,\n  100.0 * (1000.0 * p.power_mw / NULLIF(irr.irr * p.area_cm2, 0)) / NULLIF(rpce.reference_pce, 0) AS normalized_pce\nFROM p\nJOIN irr ON p.t = irr.t\nJOIN reference_pce rpce ON rpce.cell_name = p.cell_name\nORDER BY 1, 2",
+          "format": "time_series"
+        }
+      ],
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true,
+          "calcs": [
+            "mean",
+            "min",
+            "lastNotNull"
+          ]
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisLabel": "Normalized PCE (% of baseline)",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 8,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "dashed"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 100
+              }
+            ]
+          },
+          "unit": "percent",
+          "decimals": 2
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 2,
+      "title": "Irradiance & Cell Temperature",
+      "description": "Fleet-wide irradiance (W/m², left axis) and cell temperature (°C, right axis), server-side downsampled to the panel interval. Use this to spot a 'normal weather' period for interpreting the degradation curve above.",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 10
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "ffk21zlrlrqioe"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "ffk21zlrlrqioe"
+          },
+          "rawSql": "SELECT\n  time_bucket(INTERVAL '1 millisecond' * $__interval_ms, time) AS time,\n  AVG(irradiance) AS \"Irradiance (W/m²)\"\nFROM irradiance_measurement\nWHERE $__timeFilter(time)\nGROUP BY 1\nORDER BY 1",
+          "format": "time_series"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "postgres",
+            "uid": "ffk21zlrlrqioe"
+          },
+          "rawSql": "SELECT\n  time_bucket(INTERVAL '1 millisecond' * $__interval_ms, time) AS time,\n  AVG(temperature) AS \"Cell Temperature (°C)\"\nFROM temperature_measurement\nWHERE $__timeFilter(time)\n  AND temperature > -999\nGROUP BY 1\nORDER BY 1",
+          "format": "time_series"
+        }
+      ],
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "opacity",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Irradiance (W/m²)"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#FF9830"
+                }
+              },
+              {
+                "id": "unit",
+                "value": "wm2"
+              },
+              {
+                "id": "custom.axisLabel",
+                "value": "Irradiance (W/m²)"
+              },
+              {
+                "id": "custom.axisColorMode",
+                "value": "series"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Cell Temperature (°C)"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#F2495C"
+                }
+              },
+              {
+                "id": "unit",
+                "value": "celsius"
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "custom.axisLabel",
+                "value": "Cell Temperature (°C)"
+              },
+              {
+                "id": "custom.axisColorMode",
+                "value": "series"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": 3,
+      "title": "Degradation Summary",
+      "description": "Per-cell reference PCE (registered initial_pce, or an outdoor baseline fallback — see Reference Source), latest normalized performance, linear degradation rate, and the estimated date the cell crosses $degradation_threshold% of its reference ('T$degradation_threshold'). Estimate is a linear extrapolation over the selected time range — narrow the range to a representative period for a more meaningful trend. A blank T-date means the trend is flat or improving.",
+      "type": "table",
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 19
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "ffk21zlrlrqioe"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "ffk21zlrlrqioe"
+          },
+          "rawSql": "WITH cells AS (\n  SELECT name, area_cm2, initial_pce FROM solar_cell WHERE name IN (${cell:sqlstring})\n),\nbaseline_window AS (\n  SELECT c.name AS cell_name, c.area_cm2, c.initial_pce,\n    fc.start_time AS baseline_start,\n    fc.start_time + (${baseline_hours}::text || ' hours')::interval AS baseline_end\n  FROM cells c\n  CROSS JOIN LATERAL (\n    SELECT MIN(connected_at) AS start_time FROM mpp_connection_history(c.name)\n  ) fc\n),\nbaseline_power AS (\n  SELECT bw.cell_name, AVG(mfc.power_mw) AS avg_power\n  FROM baseline_window bw\n  CROSS JOIN LATERAL mpp_measurements_for_cell(bw.cell_name, bw.baseline_start, bw.baseline_end, NULL) mfc\n  WHERE mfc.mode_code = 'mpp_tracking'\n  GROUP BY bw.cell_name\n),\nbaseline_irr AS (\n  SELECT bw.cell_name, AVG(im.irradiance) AS avg_irr\n  FROM baseline_window bw\n  CROSS JOIN LATERAL (\n    SELECT irradiance FROM irradiance_measurement\n    WHERE time >= bw.baseline_start AND time < bw.baseline_end AND irradiance > ${min_irr}\n  ) im\n  GROUP BY bw.cell_name\n),\nreference_pce AS (\n  SELECT bw.cell_name,\n    COALESCE(\n      bw.initial_pce,\n      1000.0 * bp.avg_power / NULLIF(bi.avg_irr * bw.area_cm2, 0)\n    ) AS reference_pce,\n    CASE WHEN bw.initial_pce IS NOT NULL THEN 'Initial PCE (lab)'\n         ELSE 'Outdoor baseline (' || ${baseline_hours} || ' h)'\n    END AS reference_source\n  FROM baseline_window bw\n  LEFT JOIN baseline_power bp ON bp.cell_name = bw.cell_name\n  LEFT JOIN baseline_irr bi ON bi.cell_name = bw.cell_name\n),\np AS (\n  SELECT sc.name AS cell_name, sc.area_cm2,\n    mfc.measured_at AS t, mfc.power_mw\n  FROM solar_cell sc\n  CROSS JOIN LATERAL mpp_measurements_for_cell(sc.name, $__timeFrom(), $__timeTo(), INTERVAL '1 millisecond' * $__interval_ms) mfc\n  WHERE sc.name IN (${cell:sqlstring})\n    AND mfc.mode_code = 'mpp_tracking'\n),\nirr AS (\n  SELECT time_bucket(INTERVAL '1 millisecond' * $__interval_ms, time) AS t, AVG(irradiance) AS irr\n  FROM irradiance_measurement\n  WHERE $__timeFilter(time)\n    AND irradiance > ${min_irr}\n  GROUP BY 1\n),\npce AS (\n  SELECT p.cell_name, p.t,\n    100.0 * (1000.0 * p.power_mw / NULLIF(irr.irr * p.area_cm2, 0)) / NULLIF(rpce.reference_pce, 0) AS normalized_pce\n  FROM p\n  JOIN irr ON p.t = irr.t\n  JOIN reference_pce rpce ON rpce.cell_name = p.cell_name\n),\nregression AS (\n  SELECT cell_name,\n    regr_slope(normalized_pce, EXTRACT(EPOCH FROM t)) AS slope,\n    regr_intercept(normalized_pce, EXTRACT(EPOCH FROM t)) AS intercept\n  FROM pce\n  WHERE normalized_pce IS NOT NULL\n  GROUP BY cell_name\n),\nlatest AS (\n  SELECT DISTINCT ON (cell_name) cell_name, normalized_pce AS latest_normalized\n  FROM pce\n  WHERE normalized_pce IS NOT NULL\n  ORDER BY cell_name, t DESC\n)\nSELECT\n  rpce.cell_name AS \"Cell\",\n  rpce.reference_source AS \"Reference Source\",\n  rpce.reference_pce AS \"Reference PCE (%)\",\n  l.latest_normalized AS \"Latest Normalized Performance (%)\",\n  r.slope * 31557600.0 AS \"Degradation Rate (%/year)\",\n  CASE\n    WHEN r.slope < 0 THEN to_timestamp((${degradation_threshold}::numeric - r.intercept) / r.slope)\n    ELSE NULL\n  END AS \"Estimated T${degradation_threshold} Date\"\nFROM reference_pce rpce\nLEFT JOIN regression r ON r.cell_name = rpce.cell_name\nLEFT JOIN latest l ON l.cell_name = rpce.cell_name\nORDER BY l.latest_normalized ASC NULLS LAST",
+          "format": "table"
+        }
+      ],
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "show": false,
+          "reducer": [
+            "sum"
+          ],
+          "countRows": false,
+          "fields": ""
+        },
+        "showHeader": true,
+        "sortBy": [
+          {
+            "desc": false,
+            "displayName": "Latest Normalized Performance (%)"
+          }
+        ]
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "left",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": true,
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Reference PCE (%)"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Latest Normalized Performance (%)"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "gradient"
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "continuous-GrYlRd"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Degradation Rate (%/year)"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "decimals",
+                "value": 3
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "Estimated T.* Date"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTimeAsIso"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": [
+    "cell",
+    "degradation"
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "cell",
+        "label": "Solar Cells",
+        "type": "query",
+        "datasource": {
+          "type": "postgres",
+          "uid": "ffk21zlrlrqioe"
+        },
+        "definition": "SELECT __text, __value FROM (\n  SELECT 0 AS ord, '— none (select cells below) —' AS __text, '__none__' AS __value\n  UNION ALL\n  SELECT 1, name, name FROM solar_cell\n) s\nORDER BY ord, __text",
+        "query": "SELECT __text, __value FROM (\n  SELECT 0 AS ord, '— none (select cells below) —' AS __text, '__none__' AS __value\n  UNION ALL\n  SELECT 1, name, name FROM solar_cell\n) s\nORDER BY ord, __text",
+        "refresh": 1,
+        "sort": 0,
+        "multi": true,
+        "includeAll": true,
+        "current": {
+          "text": [
+            "— none (select cells below) —"
+          ],
+          "value": [
+            "__none__"
+          ]
+        },
+        "options": [],
+        "hide": 0
+      },
+      {
+        "name": "min_irr",
+        "label": "Min Irradiance (W/m²)",
+        "description": "Irradiance floor for PCE — measurements below this are excluded to suppress low-light noise.",
+        "type": "textbox",
+        "query": "50",
+        "current": {
+          "text": "50",
+          "value": "50"
+        },
+        "options": [
+          {
+            "text": "50",
+            "value": "50",
+            "selected": true
+          }
+        ],
+        "hide": 0
+      },
+      {
+        "name": "baseline_hours",
+        "label": "Baseline Window (hours)",
+        "description": "Length of the outdoor reference window (from each cell's first connection), used as the normalization baseline only for cells with no registered initial_pce. Cells with a registered initial_pce use that lab-measured value instead.",
+        "type": "textbox",
+        "query": "24",
+        "current": {
+          "text": "24",
+          "value": "24"
+        },
+        "options": [
+          {
+            "text": "24",
+            "value": "24",
+            "selected": true
+          }
+        ],
+        "hide": 0
+      },
+      {
+        "name": "degradation_threshold",
+        "label": "Degradation Threshold (%)",
+        "description": "Performance level relative to baseline used to estimate the T-threshold date (e.g. 80 for T80).",
+        "type": "textbox",
+        "query": "80",
+        "current": {
+          "text": "80",
+          "value": "80"
+        },
+        "options": [
+          {
+            "text": "80",
+            "value": "80",
+            "selected": true
+          }
+        ],
+        "hide": 0
+      }
+    ]
+  },
+  "time": {
+    "from": "2020-01-01T00:00:00.000Z",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Degradation Tracking",
+  "uid": "outdoor-degradation",
+  "version": 1,
+  "weekStart": ""
+}
