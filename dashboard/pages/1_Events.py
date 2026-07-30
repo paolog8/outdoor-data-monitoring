@@ -1,5 +1,6 @@
 from datetime import date
 
+import pandas as pd
 import streamlit as st
 from db import (
     cells_exist,
@@ -10,6 +11,7 @@ from db import (
     insert_events,
     insert_sensor_association_events,
     link_cell_experiment,
+    load_cell_by_id,
     load_cell_types,
     load_cells,
     load_experiments,
@@ -62,8 +64,12 @@ def _default_mode():
 
 
 def _ensure_state():
-    if "setup" not in st.session_state:
-        st.session_state.setup = []
+    if "setup_rows" not in st.session_state:
+        st.session_state.setup_rows = []
+    if "setup_preset_sensor_ids" not in st.session_state:
+        st.session_state.setup_preset_sensor_ids = []
+    if "setup_preset_sensor_display" not in st.session_state:
+        st.session_state.setup_preset_sensor_display = []
     if "teardown" not in st.session_state:
         st.session_state.teardown = []
 
@@ -79,9 +85,18 @@ def _batch_names(base_name, suffixes_raw):
 
 
 def _add_setup_rows(names):
-    default_mode_id, default_mode_code = _default_mode()
+    """Seeds new grid rows. Cells that already exist in the registry get their
+    current metadata (cell type, area, owner, ...) pre-filled so an untouched
+    row round-trips the same values on submit instead of clobbering them with
+    blanks; brand-new cells start with blank metadata."""
+    cell_id_by_name = {name: cell_id for cell_id, name in load_cells()}
     existing_names = cells_exist(names)
-    seen = {row["cell_name"] for row in st.session_state.setup}
+    scientist_label_by_id = {v: k for k, v in _scientist_options().items()}
+    group_label_by_id = {v: k for k, v in _group_options().items()}
+    cell_type_label_by_id = {v: k for k, v in _cell_type_options().items()}
+    _, default_mode_code = _default_mode()
+
+    seen = {row["cell_name"] for row in st.session_state.setup_rows}
     for raw_name in names:
         cell_name = raw_name.strip()
         if not cell_name or cell_name in seen:
@@ -173,13 +188,6 @@ def _polarity_options():
     for polarity_id, code in load_polarities():
         options[code] = polarity_id
     return options
-
-
-def _parse_optional_float(value):
-    stripped = value.strip()
-    if not stripped:
-        return None
-    return float(stripped)
 
 
 def _clear_and_rerun():
@@ -564,6 +572,9 @@ def _render_setup_tab():
     boards = []
     channels = []
     slot_by_board_channel = {}
+    slot_id_by_code = {}
+    board_options = []
+    channel_options = []
 
     if trackers:
         tracker_name = st.selectbox("Tracker", tracker_names, key="setup_tracker")
@@ -588,6 +599,7 @@ def _render_setup_tab():
 
         slot_options = load_slots(selected_tracker_id)
         slot_codes = [slot_code for _, slot_code in slot_options]
+        slot_id_by_code = {slot_code: slot_id for slot_id, slot_code in slot_options}
         parsed = [parse_board_channel(slot_code) for slot_code in slot_codes]
         use_board_channel = bool(parsed) and all(item is not None for item in parsed)
         if use_board_channel:
@@ -598,6 +610,10 @@ def _render_setup_tab():
                 for (slot_id, _), item in zip(slot_options, parsed)
                 if item is not None
             }
+            board_options = [str(board) for board in boards]
+            channel_options = [str(channel) for channel in channels]
+        else:
+            board_options = slot_codes
     else:
         st.warning(
             "No trackers found. Setup rows can still be used for sensor associations only."
@@ -609,10 +625,10 @@ def _render_setup_tab():
         key="setup_preset_sensors",
     )
     if st.button("Apply to all rows", key="setup_apply_preset") and preset_sensors:
-        preset_ids = [sensor_id_by_label[label] for label in preset_sensors]
-        for row in st.session_state.setup:
-            row["sensor_ids"] = preset_ids[:]
-            row["sensor_display"] = preset_sensors[:]
+        st.session_state.setup_preset_sensor_ids = [
+            sensor_id_by_label[label] for label in preset_sensors
+        ]
+        st.session_state.setup_preset_sensor_display = preset_sensors[:]
         st.rerun()
     if st.session_state.setup_preset_sensor_display:
         st.caption(
@@ -749,113 +765,23 @@ def _render_setup_tab():
         db_rows_mpp = []
         db_rows_sensor = []
 
-        names = []
-        for i, row in enumerate(st.session_state.setup):
-            cell_name = row["cell_name"].strip()
-            if not cell_name:
-                errors.append("One or more setup rows have an empty cell name.")
-                continue
-            names.append(cell_name)
-            if row["slot_id"] is None and not row["sensor_ids"]:
-                errors.append(
-                    f"{cell_name}: choose a slot, at least one sensor, or both."
-                )
-            if row["slot_id"] is not None and row.get("mode_id") is None:
-                errors.append(
-                    f"{cell_name}: no connection mode is available for a slot assignment."
-                )
-            connect_date = st.session_state.get(f"setup_date_{i}", date.today())
-            disconnect_date = st.session_state.get(f"setup_disconnect_{i}")
-            if disconnect_date is not None and disconnect_date < connect_date:
-                errors.append(
-                    f"{cell_name}: disconnect date must be on or after the connect date."
-                )
-
-        if len(names) != len(set(names)):
-            errors.append("Setup rows contain duplicate cell names.")
-
-        row_meta = []
-        for i, row in enumerate(st.session_state.setup):
-            area_text = st.session_state.get(f"setup_meta_area_{i}", "")
-            try:
-                area_cm2 = (
-                    _parse_optional_float(area_text) if area_text.strip() else None
-                )
-            except ValueError:
-                errors.append(f"{row['cell_name']}: area must be a valid number.")
-                area_cm2 = None
-            pce_text = st.session_state.get(f"setup_meta_pce_{i}", "")
-            try:
-                initial_pce = (
-                    _parse_optional_float(pce_text) if pce_text.strip() else None
-                )
-            except ValueError:
-                errors.append(
-                    f"{row['cell_name']}: initial PCE must be a valid number."
-                )
-                initial_pce = None
-            row_meta.append(
-                {
-                    "area_cm2": area_cm2,
-                    "manufacturer_id": scientist_options.get(
-                        st.session_state.get(f"setup_meta_manufacturer_{i}", "(none)")
-                    ),
-                    "owner_id": scientist_options.get(
-                        st.session_state.get(f"setup_meta_owner_{i}", "(none)")
-                    ),
-                    "group_id": group_options.get(
-                        st.session_state.get(f"setup_meta_group_{i}", "(standalone)")
-                    ),
-                    "position": st.session_state.get(
-                        f"setup_meta_position_{i}", ""
-                    ).strip()
-                    or None,
-                    "nomad_url": st.session_state.get(
-                        f"setup_meta_nomad_{i}", ""
-                    ).strip()
-                    or None,
-                    "experiment_id": experiment_options.get(
-                        st.session_state.get(f"setup_meta_experiment_{i}", "(none)")
-                    ),
-                    "cell_type_id": cell_type_options.get(
-                        st.session_state.get(f"setup_meta_cell_type_{i}", "(none)")
-                    ),
-                    "structure": st.session_state.get(
-                        f"setup_meta_structure_{i}", ""
-                    ).strip()
-                    or None,
-                    "initial_pce": initial_pce,
-                }
-            )
-
-        if errors:
-            for error in errors:
-                st.error(error)
-            return
-
         try:
-            for i, row in enumerate(st.session_state.setup):
+            for row in resolved_rows:
                 cell_id = ensure_cell(row["cell_name"])
-                if row["is_new"]:
-                    meta = row_meta[i]
-                    if any(v is not None for v in meta.values()):
-                        update_cell_metadata(
-                            cell_id,
-                            meta["area_cm2"],
-                            meta["manufacturer_id"],
-                            meta["owner_id"],
-                            meta["group_id"],
-                            meta["position"],
-                            meta["nomad_url"],
-                            meta["cell_type_id"],
-                            meta["structure"],
-                            meta["initial_pce"],
-                        )
-                    if meta["experiment_id"] is not None:
-                        link_cell_experiment(cell_id, meta["experiment_id"])
-
-                connect_date = st.session_state.get(f"setup_date_{i}", date.today())
-                disconnect_date = st.session_state.get(f"setup_disconnect_{i}")
+                update_cell_metadata(
+                    cell_id,
+                    row["area_cm2"],
+                    row["manufacturer_id"],
+                    row["owner_id"],
+                    row["group_id"],
+                    row["position_in_group"],
+                    None,
+                    row["cell_type_id"],
+                    row["structure"],
+                    row["initial_pce"],
+                )
+                if row["experiment_id"] is not None:
+                    link_cell_experiment(cell_id, row["experiment_id"])
 
                 if row["slot_id"] is not None:
                     db_rows_mpp.append(
@@ -870,7 +796,7 @@ def _render_setup_tab():
                             ),
                         }
                     )
-                    if disconnect_date is not None:
+                    if row["disconnect_date"] is not None:
                         db_rows_mpp.append(
                             {
                                 "cell_id": cell_id,
@@ -896,7 +822,7 @@ def _render_setup_tab():
                             ),
                         }
                     )
-                    if disconnect_date is not None:
+                    if row["disconnect_date"] is not None:
                         db_rows_sensor.append(
                             {
                                 "cell_id": cell_id,
@@ -911,22 +837,23 @@ def _render_setup_tab():
 
             insert_events(db_rows_mpp)
             insert_sensor_association_events(db_rows_sensor)
-            n_cells = len(st.session_state.setup)
             n_disconnects = sum(
-                1
-                for i in range(n_cells)
-                if st.session_state.get(f"setup_disconnect_{i}") is not None
+                1 for row in resolved_rows if row["disconnect_date"] is not None
             )
             msg = (
                 f"Inserted {len(db_rows_mpp)} MPP event(s) and "
-                f"{len(db_rows_sensor)} sensor event(s) for {n_cells} cell(s)."
+                f"{len(db_rows_sensor)} sensor event(s) for {len(resolved_rows)} cell(s)."
             )
             if n_disconnects:
                 msg += (
                     f" ({n_disconnects} row(s) include disconnect/dissociate events.)"
                 )
             st.success(msg)
-            st.session_state.setup = []
+            st.session_state.setup_rows = []
+            st.session_state.setup_preset_sensor_ids = []
+            st.session_state.setup_preset_sensor_display = []
+            st.session_state.pop("setup_validation", None)
+            st.session_state.pop("setup_validation_snapshot", None)
             _clear_and_rerun()
         except Exception as exc:
             st.error(f"Database error: {exc}")
