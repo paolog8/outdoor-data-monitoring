@@ -143,9 +143,9 @@ services:
       DB_USER: ${POSTGRES_USER:-postgres}
       DB_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
-      - ./grafana/data:/var/lib/grafana
+      - ./grafana/data:/var/lib/grafana:rw
       - ./grafana/provisioning:/etc/grafana/provisioning
-      - ./grafana/dashboards:/var/lib/grafana/repo-dashboards:ro
+      - ./grafana/dashboards:/var/lib/grafana/repo-dashboards
     # - ./grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
     depends_on:
       postgres:
@@ -156,7 +156,6 @@ services:
       timeout: 10s
       retries: 3
       start_period: 30s
-    user: "472:0"
 volumes:
   postgres_data:
   symmetricds_data:
