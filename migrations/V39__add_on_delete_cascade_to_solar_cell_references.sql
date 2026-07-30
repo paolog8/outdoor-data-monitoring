@@ -13,10 +13,14 @@ ALTER TABLE sensor_association_event
         FOREIGN KEY (solar_cell_id)
         REFERENCES solar_cell(id)
         ON DELETE CASCADE;
+        
+ALTER TABLE solar_cell_group
+    RENAME COLUMN cell_id TO solar_cell_id;
+    RENAME CONSTRAINT solar_cell_group_cell_id_fkey TO solar_cell_group_solar_cell_id_fkey;
 
 ALTER TABLE solar_cell_group
-    DROP CONSTRAINT solar_cell_group_cell_id_fkey,
-    ADD CONSTRAINT solar_cell_group_cell_id_fkey
+    DROP CONSTRAINT solar_cell_group_solar_cell_id_fkey,
+    ADD CONSTRAINT solar_cell_group_solar_cell_id_fkey
         FOREIGN KEY (solar_cell_id)
         REFERENCES solar_cell(id)
         ON DELETE CASCADE;
