@@ -156,7 +156,7 @@ services:
       timeout: 10s
       retries: 3
       start_period: 30s
-
+    user: "1000"
 volumes:
   postgres_data:
   symmetricds_data:
