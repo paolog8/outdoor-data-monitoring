@@ -1,6 +1,5 @@
-# Reference only — not mounted into Grafana.
-# The outdoor_monitoring datasource is provisioned via the NFS mount.
-# This file documents the connection details and UID for use in dashboard JSON.
+# Mounted into the grafana container (see docker-compose.yml) — this is a standalone
+# instance for outdoor-data-monitoring, separate from the Perocube grafana01 deployment.
 #
 # To find or verify the UID: Grafana → Connections → Data sources → outdoor_monitoring → URL
 
