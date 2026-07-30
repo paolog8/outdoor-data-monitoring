@@ -1,0 +1,181 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": { "type": "grafana", "uid": "-- Grafana --" },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "description": "Connection event audit trail and per-cell data coverage — when was each cell mounted where, and for which periods does data exist",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 2,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "id": 1,
+      "title": "Connection Events (all cells, selected time range)",
+      "description": "Raw audit trail of connect/disconnect events within the dashboard time range, newest first",
+      "type": "table",
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 0 },
+      "datasource": { "type": "postgres", "uid": "ffk21zlrlrqioe" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "postgres", "uid": "ffk21zlrlrqioe" },
+          "rawSql": "SELECT\n  e.occurred_at            AS \"When\",\n  e.event_type             AS \"Event\",\n  sc.name                  AS \"Cell\",\n  t.name                   AS \"Tracker\",\n  s.slot_code              AS \"Slot\",\n  COALESCE(mcm.code, '—')  AS \"Mode\",\n  COALESCE(mp.code, '—')   AS \"Polarity\"\nFROM mpp_connection_event e\nJOIN mpp_tracking_slot s    ON s.id = e.mpp_tracking_slot_id\nJOIN mpp_tracker t          ON t.id = s.mpp_tracker_id\nJOIN solar_cell sc          ON sc.id = e.solar_cell_id\nLEFT JOIN mpp_connection_mode mcm ON mcm.id = e.mode_id\nLEFT JOIN mpp_polarity mp   ON mp.id = e.polarity_id\nWHERE $__timeFilter(e.occurred_at)\nORDER BY e.occurred_at DESC",
+          "format": "table"
+        }
+      ],
+      "options": {
+        "cellHeight": "sm",
+        "footer": { "show": false, "reducer": ["sum"], "countRows": false, "fields": "" },
+        "showHeader": true,
+        "sortBy": []
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "align": "left", "cellOptions": { "type": "auto" }, "filterable": true, "inspect": false },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "connection": { "text": "connection", "color": "#73BF69", "index": 0 },
+                "disconnection": { "text": "disconnection", "color": "#F2495C", "index": 1 }
+              }
+            }
+          ],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "When" },
+            "properties": [
+              { "id": "unit", "value": "dateTimeAsIso" },
+              { "id": "custom.width", "value": 190 }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Event" },
+            "properties": [
+              { "id": "custom.cellOptions", "value": { "type": "color-text" } },
+              { "id": "custom.width", "value": 130 }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": 2,
+      "title": "Connection History — $cell",
+      "description": "Every connection interval for the selected cell, via mpp_connection_history(). Open-ended rows are still connected.",
+      "type": "table",
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 10 },
+      "datasource": { "type": "postgres", "uid": "ffk21zlrlrqioe" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "postgres", "uid": "ffk21zlrlrqioe" },
+          "rawSql": "SELECT\n  tracker_name    AS \"Tracker\",\n  slot_code       AS \"Slot\",\n  mode_code       AS \"Mode\",\n  connected_at    AS \"Connected\",\n  disconnected_at AS \"Disconnected\",\n  duration::text  AS \"Duration\"\nFROM mpp_connection_history('$cell')\nORDER BY connected_at DESC",
+          "format": "table"
+        }
+      ],
+      "options": {
+        "cellHeight": "sm",
+        "footer": { "show": false, "reducer": ["sum"], "countRows": false, "fields": "" },
+        "showHeader": true,
+        "sortBy": []
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "align": "left", "cellOptions": { "type": "auto" }, "filterable": false, "inspect": false },
+          "mappings": [],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "Connected" },
+            "properties": [{ "id": "unit", "value": "dateTimeAsIso" }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Disconnected" },
+            "properties": [{ "id": "unit", "value": "dateTimeAsIso" }]
+          }
+        ]
+      }
+    },
+    {
+      "id": 3,
+      "title": "Data Coverage — $cell",
+      "description": "First/last measurement and number of distinct days with data for the selected cell. Computed with a 1-day server-side bucket (cheap), independent of the dashboard time range.",
+      "type": "table",
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 10 },
+      "datasource": { "type": "postgres", "uid": "ffk21zlrlrqioe" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "postgres", "uid": "ffk21zlrlrqioe" },
+          "rawSql": "SELECT\n  MIN(measured_at)                      AS \"First Measurement\",\n  MAX(measured_at)                      AS \"Last Measurement\",\n  COUNT(DISTINCT measured_at::date)     AS \"Days with Data\"\nFROM mpp_measurements_for_cell('$cell', TIMESTAMPTZ '2020-01-01', now(), INTERVAL '1 day')",
+          "format": "table"
+        }
+      ],
+      "options": {
+        "cellHeight": "sm",
+        "footer": { "show": false, "reducer": ["sum"], "countRows": false, "fields": "" },
+        "showHeader": true,
+        "sortBy": []
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "align": "left", "cellOptions": { "type": "auto" }, "filterable": false, "inspect": false },
+          "mappings": [],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "First Measurement" },
+            "properties": [{ "id": "unit", "value": "dateTimeAsIso" }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Last Measurement" },
+            "properties": [{ "id": "unit", "value": "dateTimeAsIso" }]
+          }
+        ]
+      }
+    }
+  ],
+  "refresh": "",
+  "schemaVersion": 39,
+  "tags": ["connections", "coverage"],
+  "templating": {
+    "list": [
+      {
+        "name": "cell",
+        "label": "Cell",
+        "type": "query",
+        "datasource": { "type": "postgres", "uid": "ffk21zlrlrqioe" },
+        "query": "SELECT name FROM solar_cell ORDER BY name",
+        "refresh": 1,
+        "sort": 0,
+        "multi": false,
+        "includeAll": false,
+        "current": {},
+        "options": []
+      }
+    ]
+  },
+  "time": { "from": "now-90d", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Connection History & Data Coverage",
+  "uid": "outdoor-connection-history",
+  "version": 1,
+  "weekStart": ""
+}
