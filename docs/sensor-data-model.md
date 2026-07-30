@@ -30,7 +30,7 @@ sensor_association_event
   id            BIGSERIAL PK
   event_type    TEXT  ('association' | 'dissociation')
   specification TEXT  (free-form notes)
-  occurred_at   TIMESTAMPTZ
+  timestamp     TIMESTAMPTZ
   solar_cell_id BIGINT → solar_cell.id
   sensor_id     BIGINT → sensor.id
 ```
@@ -41,8 +41,8 @@ Two indexes support the two natural access patterns:
 
 | Index | Query it serves |
 |---|---|
-| `(solar_cell_id, occurred_at DESC)` | What sensor(s) were on cell X at time T? |
-| `(sensor_id, occurred_at DESC)` | What cell was sensor S monitoring at time T? |
+| `(solar_cell_id, timestamp DESC)` | What sensor(s) were on cell X at time T? |
+| `(sensor_id, timestamp DESC)` | What cell was sensor S monitoring at time T? |
 
 ### Extending with a new sensor type
 

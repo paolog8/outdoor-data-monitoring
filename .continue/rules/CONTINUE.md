@@ -286,7 +286,7 @@ RETURNING id;
 
 **Direct SQL**:
 ```sql
-INSERT INTO mpp_connection_event (event_type, mode_id, polarity_id, occurred_at, solar_cell_id, mpp_tracking_slot_id)
+INSERT INTO mpp_connection_event (event_type, mode_id, polarity_id, timestamp, solar_cell_id, mpp_tracking_slot_id)
 VALUES ('connection', mode_id, polarity_id, NOW(), cell_id, slot_id);
 ```
 
@@ -368,7 +368,7 @@ SELECT * FROM mpp_tracker_status('tracker_name');
 ```sql
 SELECT * FROM sensor_association_event
 WHERE solar_cell_id = (SELECT id FROM solar_cell WHERE name = 'CELL-001')
-ORDER BY occurred_at DESC;
+ORDER BY timestamp DESC;
 ```
 
 **List all schema objects**:
@@ -381,7 +381,7 @@ WHERE table_schema = 'public' ORDER BY table_name;
 ```sql
 SELECT * FROM mpp_connection_event
 WHERE solar_cell_id = (SELECT id FROM solar_cell WHERE name = 'CELL-001')
-ORDER BY occurred_at DESC;
+ORDER BY timestamp DESC;
 ```
 
 ## References
