@@ -44,7 +44,7 @@
             "type": "postgres",
             "uid": "ffk21zlrlrqioe"
           },
-          "rawSql": "SELECT COUNT(*) AS value\nFROM (\n  SELECT DISTINCT ON (mpp_tracking_slot_id) event_type\n  FROM mpp_connection_event\n  WHERE occurred_at <= $__timeTo()\n  ORDER BY mpp_tracking_slot_id, occurred_at DESC\n) latest\nWHERE event_type = 'connection'",
+          "rawSql": "SELECT COUNT(*) AS value\nFROM (\n  SELECT DISTINCT ON (mpp_tracking_slot_id) event_type\n  FROM mpp_connection_event\n  WHERE timestamp <= $__timeTo()\n  ORDER BY mpp_tracking_slot_id, timestamp DESC\n) latest\nWHERE event_type = 'connection'",
           "format": "table"
         }
       ],
@@ -121,7 +121,7 @@
             "type": "postgres",
             "uid": "ffk21zlrlrqioe"
           },
-          "rawSql": "SELECT EXTRACT(EPOCH FROM ($__timeTo() - MAX(time))) AS \"MPP\"\nFROM mpp_measurement\nWHERE time <= $__timeTo()",
+          "rawSql": "SELECT EXTRACT(EPOCH FROM ($__timeTo() - MAX(timestamp))) AS \"MPP\"\nFROM mpp_measurement\nWHERE timestamp <= $__timeTo()",
           "format": "table"
         },
         {
@@ -130,7 +130,7 @@
             "type": "postgres",
             "uid": "ffk21zlrlrqioe"
           },
-          "rawSql": "SELECT EXTRACT(EPOCH FROM ($__timeTo() - MAX(time))) AS \"Irradiance\"\nFROM irradiance_measurement\nWHERE time <= $__timeTo()",
+          "rawSql": "SELECT EXTRACT(EPOCH FROM ($__timeTo() - MAX(timestamp))) AS \"Irradiance\"\nFROM irradiance_measurement\nWHERE timestamp <= $__timeTo()",
           "format": "table"
         },
         {
@@ -139,7 +139,7 @@
             "type": "postgres",
             "uid": "ffk21zlrlrqioe"
           },
-          "rawSql": "SELECT EXTRACT(EPOCH FROM ($__timeTo() - MAX(time))) AS \"Temperature\"\nFROM temperature_measurement\nWHERE time <= $__timeTo()",
+          "rawSql": "SELECT EXTRACT(EPOCH FROM ($__timeTo() - MAX(timestamp))) AS \"Temperature\"\nFROM temperature_measurement\nWHERE timestamp <= $__timeTo()",
           "format": "table"
         }
       ],
@@ -209,7 +209,7 @@
             "type": "postgres",
             "uid": "ffk21zlrlrqioe"
           },
-          "rawSql": "SELECT\n  time_bucket('5 minutes', time) AS time,\n  AVG(irradiance) AS \"Irradiance\"\nFROM irradiance_measurement\nWHERE $__timeFilter(time)\nGROUP BY 1\nORDER BY 1",
+          "rawSql": "SELECT\n  time_bucket('5 minutes', timestamp) AS time,\n  AVG(irradiance) AS \"Irradiance\"\nFROM irradiance_measurement\nWHERE $__timeFilter(timestamp)\nGROUP BY 1\nORDER BY 1",
           "format": "time_series"
         }
       ],
@@ -272,7 +272,7 @@
             "type": "postgres",
             "uid": "ffk21zlrlrqioe"
           },
-          "rawSql": "SELECT\n  time_bucket('5 minutes', time) AS time,\n  AVG(temperature) AS \"Temperature\"\nFROM temperature_measurement\nWHERE $__timeFilter(time)\n  AND temperature > -999\nGROUP BY 1\nORDER BY 1",
+          "rawSql": "SELECT\n  time_bucket('5 minutes', timestamp) AS time,\n  AVG(temperature) AS \"Temperature\"\nFROM temperature_measurement\nWHERE $__timeFilter(timestamp)\n  AND temperature > -999\nGROUP BY 1\nORDER BY 1",
           "format": "time_series"
         }
       ],
@@ -346,7 +346,7 @@
             "type": "postgres",
             "uid": "ffk21zlrlrqioe"
           },
-          "rawSql": "WITH connection_intervals AS (\n  SELECT\n    e.mpp_tracking_slot_id,\n    e.solar_cell_id,\n    e.event_type,\n    e.occurred_at AS connected_at,\n    LEAD(e.occurred_at) OVER (\n      PARTITION BY e.mpp_tracking_slot_id ORDER BY e.occurred_at\n    ) AS next_event_at\n  FROM mpp_connection_event e\n)\nSELECT\n  time_bucket('5 minutes', m.time) AS time,\n  sc.name AS metric,\n  AVG(m.power) AS \"Power\"\nFROM connection_intervals ci\nJOIN solar_cell sc ON sc.id = ci.solar_cell_id\nJOIN mpp_measurement m\n  ON m.mpp_tracking_slot_id = ci.mpp_tracking_slot_id\n AND m.time >= ci.connected_at\n AND (ci.next_event_at IS NULL OR m.time < ci.next_event_at)\nWHERE ci.event_type = 'connection'\n  AND $__timeFilter(m.time)\nGROUP BY 1, 2\nORDER BY 1, 2",
+          "rawSql": "WITH connection_intervals AS (\n  SELECT\n    e.mpp_tracking_slot_id,\n    e.solar_cell_id,\n    e.event_type,\n    e.timestamp AS connected_at,\n    LEAD(e.timestamp) OVER (\n      PARTITION BY e.mpp_tracking_slot_id ORDER BY e.timestamp\n    ) AS next_event_at\n  FROM mpp_connection_event e\n)\nSELECT\n  time_bucket('5 minutes', m.timestamp) AS time,\n  sc.name AS metric,\n  AVG(m.power) AS \"Power\"\nFROM connection_intervals ci\nJOIN solar_cell sc ON sc.id = ci.solar_cell_id\nJOIN mpp_measurement m\n  ON m.mpp_tracking_slot_id = ci.mpp_tracking_slot_id\n AND m.timestamp >= ci.connected_at\n AND (ci.next_event_at IS NULL OR m.timestamp < ci.next_event_at)\nWHERE ci.event_type = 'connection'\n  AND $__timeFilter(m.timestamp)\nGROUP BY 1, 2\nORDER BY 1, 2",
           "format": "time_series"
         }
       ],
@@ -432,7 +432,7 @@
             "type": "postgres",
             "uid": "ffk21zlrlrqioe"
           },
-          "rawSql": "SELECT\n  time_bucket('5 minutes', time) AS time,\n  AVG(irradiance) AS \"Irradiance (W/m²)\"\nFROM irradiance_measurement\nWHERE $__timeFilter(time)\nGROUP BY 1\nORDER BY 1",
+          "rawSql": "SELECT\n  time_bucket('5 minutes', timestamp) AS time,\n  AVG(irradiance) AS \"Irradiance (W/m²)\"\nFROM irradiance_measurement\nWHERE $__timeFilter(timestamp)\nGROUP BY 1\nORDER BY 1",
           "format": "time_series"
         },
         {
@@ -441,7 +441,7 @@
             "type": "postgres",
             "uid": "ffk21zlrlrqioe"
           },
-          "rawSql": "SELECT\n  time_bucket('5 minutes', time) AS time,\n  AVG(temperature) AS \"Cell Temperature (°C)\"\nFROM temperature_measurement\nWHERE $__timeFilter(time)\n  AND temperature > -999\n  AND '$show_temperature' = 'show'\nGROUP BY 1\nORDER BY 1",
+          "rawSql": "SELECT\n  time_bucket('5 minutes', timestamp) AS time,\n  AVG(temperature) AS \"Cell Temperature (°C)\"\nFROM temperature_measurement\nWHERE $__timeFilter(timestamp)\n  AND temperature > -999\n  AND '$show_temperature' = 'show'\nGROUP BY 1\nORDER BY 1",
           "format": "time_series"
         }
       ],
@@ -593,7 +593,7 @@
             "type": "postgres",
             "uid": "ffk21zlrlrqioe"
           },
-          "rawSql": "SELECT\n  t.name                          AS \"Tracker\",\n  s.slot_code                     AS \"Slot\",\n  sc.name                         AS \"Cell\",\n  mcm.code                        AS \"Mode\",\n  COALESCE(mp.code, '—')          AS \"Polarity\",\n  mce.occurred_at                 AS \"Connected Since\",\n  $__timeTo() - mce.occurred_at   AS \"Duration\",\n  ROUND(m.power::numeric,   2)    AS \"Power (mW)\",\n  ROUND(m.voltage::numeric, 3)    AS \"Voltage (V)\",\n  ROUND(m.current::numeric, 4)    AS \"Current (mA)\"\nFROM (\n  SELECT DISTINCT ON (mpp_tracking_slot_id)\n    mpp_tracking_slot_id, solar_cell_id, mode_id, polarity_id, occurred_at, event_type\n  FROM mpp_connection_event\n  WHERE occurred_at <= $__timeTo()\n  ORDER BY mpp_tracking_slot_id, occurred_at DESC\n) mce\nJOIN mpp_tracking_slot   s   ON s.id   = mce.mpp_tracking_slot_id\nJOIN mpp_tracker         t   ON t.id   = s.mpp_tracker_id\nJOIN solar_cell          sc  ON sc.id  = mce.solar_cell_id\nJOIN mpp_connection_mode mcm ON mcm.id = mce.mode_id\nLEFT JOIN mpp_polarity   mp  ON mp.id  = mce.polarity_id\nJOIN LATERAL (\n  SELECT power, voltage, current\n  FROM mpp_measurement\n  WHERE mpp_tracking_slot_id = mce.mpp_tracking_slot_id\n    AND time <= $__timeTo()\n  ORDER BY time DESC LIMIT 1\n) m ON true\nWHERE mce.event_type = 'connection'\nORDER BY t.name, s.slot_code",
+          "rawSql": "SELECT\n  t.name                          AS \"Tracker\",\n  s.slot_code                     AS \"Slot\",\n  sc.name                         AS \"Cell\",\n  mcm.code                        AS \"Mode\",\n  COALESCE(mp.code, '—')          AS \"Polarity\",\n  mce.timestamp                 AS \"Connected Since\",\n  $__timeTo() - mce.timestamp   AS \"Duration\",\n  ROUND(m.power::numeric,   2)    AS \"Power (mW)\",\n  ROUND(m.voltage::numeric, 3)    AS \"Voltage (V)\",\n  ROUND(m.current::numeric, 4)    AS \"Current (mA)\"\nFROM (\n  SELECT DISTINCT ON (mpp_tracking_slot_id)\n    mpp_tracking_slot_id, solar_cell_id, mode_id, polarity_id, timestamp, event_type\n  FROM mpp_connection_event\n  WHERE timestamp <= $__timeTo()\n  ORDER BY mpp_tracking_slot_id, timestamp DESC\n) mce\nJOIN mpp_tracking_slot   s   ON s.id   = mce.mpp_tracking_slot_id\nJOIN mpp_tracker         t   ON t.id   = s.mpp_tracker_id\nJOIN solar_cell          sc  ON sc.id  = mce.solar_cell_id\nJOIN mpp_connection_mode mcm ON mcm.id = mce.mode_id\nLEFT JOIN mpp_polarity   mp  ON mp.id  = mce.polarity_id\nJOIN LATERAL (\n  SELECT power, voltage, current\n  FROM mpp_measurement\n  WHERE mpp_tracking_slot_id = mce.mpp_tracking_slot_id\n    AND timestamp <= $__timeTo()\n  ORDER BY timestamp DESC LIMIT 1\n) m ON true\nWHERE mce.event_type = 'connection'\nORDER BY t.name, s.slot_code",
           "format": "table"
         }
       ],
