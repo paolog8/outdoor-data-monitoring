@@ -10,12 +10,12 @@ datasources:
   - name: outdoor_monitoring
     uid: ffk21zlrlrqioe
     type: postgres
-    url: timescaledb:5432
-    user: ${DB_USER}
+    url: postgres:5432
+    user: ${POSTGRES_USER}
     secureJsonData:
-      password: ${DB_PASSWORD}
+      password: ${POSTGRES_PASSWORD}
     jsonData:
-      database: outdoor_monitoring
+      database: ${POSTGRES_DB}
       sslmode: disable
-      postgresVersion: 1500
+      postgresVersion: 1700
       timescaledb: true
