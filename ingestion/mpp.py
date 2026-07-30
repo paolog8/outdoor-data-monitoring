@@ -4,7 +4,6 @@ import logging
 from pathlib import Path
 
 import psycopg2.extras
-
 from constants import BOARDS, CHANNELS, SLOT_CODE_PATTERN
 
 logger = logging.getLogger(__name__)
@@ -22,13 +21,15 @@ def parse_file(file_path: Path) -> list:
             if len(row) != 4:
                 logger.warning(
                     "Skipping malformed row %d in %s (expected 4 columns, got %d)",
-                    lineno, file_path, len(row),
+                    lineno,
+                    file_path,
+                    len(row),
                 )
                 continue
             try:
-                ts      = datetime.datetime.fromisoformat(row[0])
-                ts      = ts.replace(tzinfo=datetime.timezone.utc)
-                power   = float(row[1])
+                ts = datetime.datetime.fromisoformat(row[0])
+                ts = ts.replace(tzinfo=datetime.timezone.utc)
+                power = float(row[1])
                 current = float(row[2])
                 voltage = float(row[3])
                 rows.append((ts, power, current, voltage))
@@ -58,9 +59,9 @@ def ingest_file(cur, slot_id, rows: list, batch_size: int, dry_run: bool) -> int
         psycopg2.extras.execute_values(
             cur,
             """
-            INSERT INTO mpp_measurement (time, mpp_tracking_slot_id, voltage, current, power)
+            INSERT INTO mpp_measurement (timestamp, mpp_tracking_slot_id, voltage, current, power)
             VALUES %s
-            ON CONFLICT (mpp_tracking_slot_id, time) DO NOTHING
+            ON CONFLICT (mpp_tracking_slot_id, timestamp) DO NOTHING
             """,
             batch_data,
             page_size=len(batch_data),
@@ -69,7 +70,9 @@ def ingest_file(cur, slot_id, rows: list, batch_size: int, dry_run: bool) -> int
     return inserted
 
 
-def ingest_mpp_folder(conn, slot_map: dict, folder_path: Path, batch_size: int, dry_run: bool) -> int:
+def ingest_mpp_folder(
+    conn, slot_map: dict, folder_path: Path, batch_size: int, dry_run: bool
+) -> int:
     """
     Processes all board/channel files within a folder.
     One transaction per file; failed files roll back cleanly.
@@ -79,7 +82,7 @@ def ingest_mpp_folder(conn, slot_map: dict, folder_path: Path, batch_size: int, 
     for board in BOARDS:
         for channel in CHANNELS:
             slot_code = SLOT_CODE_PATTERN.format(board, channel)
-            slot_id   = slot_map.get(slot_code)
+            slot_id = slot_map.get(slot_code)
             if slot_id is None:
                 logger.warning("No slot found for %s — skipping", slot_code)
                 continue
@@ -101,7 +104,10 @@ def ingest_mpp_folder(conn, slot_map: dict, folder_path: Path, batch_size: int, 
                 total_inserted += n
                 logger.info(
                     "Committed %d new MPP rows from %s/%s (parsed %d)",
-                    n, folder_path.parent.name, file_path.name, len(rows),
+                    n,
+                    folder_path.parent.name,
+                    file_path.name,
+                    len(rows),
                 )
             except Exception:
                 conn.rollback()
