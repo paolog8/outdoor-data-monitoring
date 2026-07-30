@@ -6,3 +6,5 @@ data/
 docker-compose.override.yml
 
 *.org
+__pycache__/
+*.pyc
