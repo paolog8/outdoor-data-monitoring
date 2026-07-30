@@ -293,7 +293,13 @@ def insert_temperature_sensor(name, model, serial_number, location):
             INSERT INTO temperature_sensor (id, name, model, serial_number, location)
             VALUES (%s, %s, %s, %s, %s)
             """,
-            (sensor_id, name.strip(), model.strip() or None, serial_number.strip() or None, location.strip() or None),
+            (
+                sensor_id,
+                name.strip(),
+                model.strip() or None,
+                serial_number.strip() or None,
+                location.strip() or None,
+            ),
         )
         conn.commit()
         return sensor_id
@@ -310,7 +316,13 @@ def insert_irradiance_sensor(name, model, serial_number, location):
             INSERT INTO irradiance_sensor (id, name, model, serial_number, location)
             VALUES (%s, %s, %s, %s, %s)
             """,
-            (sensor_id, name.strip(), model.strip() or None, serial_number.strip() or None, location.strip() or None),
+            (
+                sensor_id,
+                name.strip(),
+                model.strip() or None,
+                serial_number.strip() or None,
+                location.strip() or None,
+            ),
         )
         conn.commit()
         return sensor_id
@@ -318,16 +330,21 @@ def insert_irradiance_sensor(name, model, serial_number, location):
 
 def insert_spectral_sensor(name, model, serial_number, wavelengths_nm, location):
     with get_connection() as conn, conn.cursor() as cur:
-        cur.execute(
-            "INSERT INTO sensor (sensor_type) VALUES ('spectral') RETURNING id"
-        )
+        cur.execute("INSERT INTO sensor (sensor_type) VALUES ('spectral') RETURNING id")
         sensor_id = cur.fetchone()[0]
         cur.execute(
             """
             INSERT INTO spectral_sensor (id, name, instrument, serial_number, wavelengths_nm, location)
             VALUES (%s, %s, %s, %s, %s, %s)
             """,
-            (sensor_id, name.strip(), model.strip() or None, serial_number.strip() or None, wavelengths_nm, location.strip() or None),
+            (
+                sensor_id,
+                name.strip(),
+                model.strip() or None,
+                serial_number.strip() or None,
+                wavelengths_nm,
+                location.strip() or None,
+            ),
         )
         conn.commit()
         return sensor_id
@@ -372,7 +389,7 @@ def current_slot_for_cell(cell_id):
             JOIN mpp_tracking_slot s ON s.id = e.mpp_tracking_slot_id
             JOIN mpp_tracker t ON t.id = s.mpp_tracker_id
             WHERE e.solar_cell_id = %s
-            ORDER BY e.occurred_at DESC, e.id DESC
+            ORDER BY e.timestamp DESC, e.id DESC
             LIMIT 1
             """,
             (cell_id,),
@@ -409,7 +426,7 @@ def current_sensors_for_cell(cell_id):
                 LEFT JOIN irradiance_sensor ir ON ir.id = s.id
                 LEFT JOIN spectral_sensor sp ON sp.id = s.id
                 WHERE e.solar_cell_id = %s
-                ORDER BY e.sensor_id, e.occurred_at DESC, e.id DESC
+                ORDER BY e.sensor_id, e.timestamp DESC, e.id DESC
             )
             SELECT sensor_id, sensor_type, name
             FROM latest
@@ -473,8 +490,8 @@ def insert_events(rows):
             cur,
             """
             INSERT INTO mpp_connection_event
-                (event_type, mode_id, polarity_id, occurred_at, solar_cell_id, mpp_tracking_slot_id)
-            VALUES (%(event_type)s, %(mode_id)s, %(polarity_id)s, %(occurred_at)s, %(cell_id)s, %(slot_id)s)
+                (event_type, mode_id, polarity_id, timestamp, solar_cell_id, mpp_tracking_slot_id)
+            VALUES (%(event_type)s, %(mode_id)s, %(polarity_id)s, %(timestamp)s, %(cell_id)s, %(slot_id)s)
             """,
             rows,
         )
@@ -495,7 +512,7 @@ def recent_connection_events(limit=25):
             """
             SELECT
                 e.id,
-                e.occurred_at,
+                e.timestamp,
                 e.event_type,
                 sc.name AS cell_name,
                 t.name  AS tracker_name,
@@ -505,7 +522,7 @@ def recent_connection_events(limit=25):
                 NOT EXISTS (
                     SELECT 1 FROM mpp_connection_event later
                     WHERE later.mpp_tracking_slot_id = e.mpp_tracking_slot_id
-                      AND (later.occurred_at, later.id) > (e.occurred_at, e.id)
+                      AND (later.timestamp, later.id) > (e.timestamp, e.id)
                 ) AS is_latest_for_slot
             FROM mpp_connection_event e
             JOIN solar_cell sc       ON sc.id = e.solar_cell_id
@@ -513,7 +530,7 @@ def recent_connection_events(limit=25):
             JOIN mpp_tracker t       ON t.id  = s.mpp_tracker_id
             LEFT JOIN mpp_connection_mode m ON m.id = e.mode_id
             LEFT JOIN mpp_polarity p        ON p.id = e.polarity_id
-            ORDER BY e.occurred_at DESC, e.id DESC
+            ORDER BY e.timestamp DESC, e.id DESC
             LIMIT %s
             """,
             (limit,),
@@ -532,7 +549,7 @@ def delete_connection_event(event_id):
               AND NOT EXISTS (
                   SELECT 1 FROM mpp_connection_event later
                   WHERE later.mpp_tracking_slot_id = e.mpp_tracking_slot_id
-                    AND (later.occurred_at, later.id) > (e.occurred_at, e.id)
+                    AND (later.timestamp, later.id) > (e.timestamp, e.id)
               )
             """,
             (event_id,),
@@ -627,8 +644,15 @@ def update_group_cell_id(group_id, cell_id):
 
 
 def insert_cell(
-    name, area_cm2, manufacturer_id, owner_id, group_id, position_in_group,
-    cell_type_id=None, structure=None, initial_pce=None,
+    name,
+    area_cm2,
+    manufacturer_id,
+    owner_id,
+    group_id,
+    position_in_group,
+    cell_type_id=None,
+    structure=None,
+    initial_pce=None,
 ):
     with get_connection() as conn, conn.cursor() as cur:
         cur.execute(
@@ -655,8 +679,16 @@ def insert_cell(
 
 
 def update_cell_metadata(
-    cell_id, area_cm2, manufacturer_id, owner_id, group_id, position_in_group,
-    nomad_entry_url=None, cell_type_id=None, structure=None, initial_pce=None,
+    cell_id,
+    area_cm2,
+    manufacturer_id,
+    owner_id,
+    group_id,
+    position_in_group,
+    nomad_entry_url=None,
+    cell_type_id=None,
+    structure=None,
+    initial_pce=None,
 ):
     with get_connection() as conn, conn.cursor() as cur:
         cur.execute(
@@ -758,8 +790,8 @@ def insert_sensor_association_events(rows):
             cur,
             """
             INSERT INTO sensor_association_event
-                (event_type, specification, occurred_at, solar_cell_id, sensor_id)
-            VALUES (%(event_type)s, %(specification)s, %(occurred_at)s, %(cell_id)s, %(sensor_id)s)
+                (event_type, specification, timestamp, solar_cell_id, sensor_id)
+            VALUES (%(event_type)s, %(specification)s, %(timestamp)s, %(cell_id)s, %(sensor_id)s)
             """,
             rows,
         )
@@ -778,7 +810,7 @@ def system_summary():
                     solar_cell_id,
                     event_type
                 FROM mpp_connection_event
-                ORDER BY solar_cell_id, occurred_at DESC, id DESC
+                ORDER BY solar_cell_id, timestamp DESC, id DESC
             )
             SELECT
                 (SELECT COUNT(*) FROM solar_cell) AS cell_count,

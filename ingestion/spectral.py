@@ -4,11 +4,77 @@ import logging
 from pathlib import Path
 
 import psycopg2.extras
-
 from constants import SPECTRAL_FILE_RE
 from registry import upsert_spectral_sensor
 
 logger = logging.getLogger(__name__)
+
+EXPECTED_ROW_LABELS = {
+    0: "Date",
+    1: "Time",
+    2: "Memo",
+    3: "Sensor",
+    4: "Exposure Time",
+    5: "Sensor Temp.",
+    6: "Power(V)",
+}
+
+
+class SpectralFileStructureError(ValueError):
+    """Raised when a spectral CSV does not match the expected EKO WISER 35 layout."""
+
+
+def _strip_trailing_empty_column(reader: list) -> list:
+    """
+    EKO WISER 35 exports terminate every row with a trailing comma, producing
+    an extra empty field beyond the documented columns. Drop it uniformly so
+    column counts line up with the layout in `parse_spectral_file`.
+    """
+    if reader and all(not row or row[-1] == "" for row in reader):
+        return [row[:-1] for row in reader]
+    return reader
+
+
+def validate_spectral_structure(reader: list) -> None:
+    """
+    Checks that `reader` (rows from an EKO WISER 35 CSV) matches the fixed
+    layout documented in `parse_spectral_file`. Raises SpectralFileStructureError
+    with a description of the mismatch if it does not.
+    """
+    if len(reader) < 9:
+        raise SpectralFileStructureError(
+            f"expected at least 9 header+data rows, got {len(reader)}"
+        )
+
+    for row_idx, expected_label in EXPECTED_ROW_LABELS.items():
+        row = reader[row_idx]
+        actual = row[0].strip() if row else ""
+        if expected_label.lower() not in actual.lower():
+            raise SpectralFileStructureError(
+                f"row {row_idx} label is '{actual}', expected something containing '{expected_label}'"
+            )
+
+    header_row = reader[7]
+    first_label = header_row[0].strip() if header_row else ""
+    if first_label != "Wavelength(nm)":
+        raise SpectralFileStructureError(
+            f"row 7 col 0 is '{first_label}', expected 'Wavelength(nm)'"
+        )
+    if len(header_row) < 2 or any(
+        "irradiance" not in cell.lower() for cell in header_row[1:]
+    ):
+        raise SpectralFileStructureError(
+            "row 7 data columns are not all 'Irradiance(W/m2/um)'"
+        )
+
+    n_cols = len(reader[3])
+    if n_cols < 2:
+        raise SpectralFileStructureError(f"row 3 (Sensor) has only {n_cols} column(s)")
+    for row_idx in range(8):
+        if len(reader[row_idx]) != n_cols:
+            raise SpectralFileStructureError(
+                f"row {row_idx} has {len(reader[row_idx])} columns, expected {n_cols} (matching row 3)"
+            )
 
 
 def parse_spectral_file(file_path: Path) -> dict:
@@ -23,8 +89,8 @@ def parse_spectral_file(file_path: Path) -> dict:
       Row 4: Exposure Time — integer ms per column
       Row 5: Sensor Temp.  — float °C per column
       Row 6: Power(V)      — float V per column
-      Row 7: Column labels — 'Wavelength(nm)', 'Irradiance(W/m2/um)' × 24
-      Row 8+: Data         — wavelength in col 0; irradiance values in cols 1–24 (empty = inactive)
+      Row 7: Column labels — 'Wavelength(nm)', 'Irradiance(W/m2/um)' x 24
+      Row 8+: Data         — wavelength in col 0; irradiance values in cols 1-24 (empty = inactive)
 
     Returns a dict keyed by sensor model:
         {
@@ -34,18 +100,22 @@ def parse_spectral_file(file_path: Path) -> dict:
                 "measurements": list of (datetime, list[float], int|None, float|None, float|None)
             }
         }
+
+    Raises:
+        SpectralFileStructureError: if the file does not match the layout above.
+            Callers must not treat a partial/best-effort parse as valid in this case.
     """
     with open(file_path, newline="") as fh:
         reader = list(csv.reader(fh))
 
-    if len(reader) < 9:
-        logger.warning("Spectral file %s has fewer than 9 rows — skipping", file_path)
-        return {}
+    reader = _strip_trailing_empty_column(reader)
 
-    sensor_row   = reader[3]
+    validate_spectral_structure(reader)
+
+    sensor_row = reader[3]
     exposure_row = reader[4]
-    temp_row     = reader[5]
-    power_row    = reader[6]
+    temp_row = reader[5]
+    power_row = reader[6]
 
     n_data_cols = len(sensor_row) - 1
 
@@ -58,13 +128,13 @@ def parse_spectral_file(file_path: Path) -> dict:
             result.append(last)
         return result
 
-    dates     = fill_forward(reader[0][1:])
-    times_ff  = fill_forward(reader[1][1:])
-    memos     = fill_forward(reader[2][1:])
-    models    = [v.strip() for v in sensor_row[1:]]
+    dates = fill_forward(reader[0][1:])
+    times_ff = fill_forward(reader[1][1:])
+    memos = fill_forward(reader[2][1:])
+    models = [v.strip() for v in sensor_row[1:]]
     exposures = [v.strip() for v in exposure_row[1:]]
-    temps     = [v.strip() for v in temp_row[1:]]
-    powers    = [v.strip() for v in power_row[1:]]
+    temps = [v.strip() for v in temp_row[1:]]
+    powers = [v.strip() for v in power_row[1:]]
 
     def _safe_float(s):
         try:
@@ -83,19 +153,23 @@ def parse_spectral_file(file_path: Path) -> dict:
         try:
             date_obj = datetime.datetime.strptime(dates[i], "%Y/%m/%d").date()
             time_obj = datetime.time.fromisoformat(times_ff[i])
-            ts = datetime.datetime.combine(date_obj, time_obj, tzinfo=datetime.timezone.utc)
+            ts = datetime.datetime.combine(
+                date_obj, time_obj, tzinfo=datetime.timezone.utc
+            )
         except (ValueError, IndexError, TypeError):
             col_ctx.append(None)
             continue
 
-        col_ctx.append({
-            "ts":      ts,
-            "model":   models[i]    if i < len(models)    else None,
-            "instr":   memos[i]     if i < len(memos)     else "EKO WISER 35",
-            "exp_ms":  _safe_int(exposures[i]  if i < len(exposures) else ""),
-            "temp_c":  _safe_float(temps[i]    if i < len(temps)     else ""),
-            "power_v": _safe_float(powers[i]   if i < len(powers)    else ""),
-        })
+        col_ctx.append(
+            {
+                "ts": ts,
+                "model": models[i] if i < len(models) else None,
+                "instr": memos[i] if i < len(memos) else "EKO WISER 35",
+                "exp_ms": _safe_int(exposures[i] if i < len(exposures) else ""),
+                "temp_c": _safe_float(temps[i] if i < len(temps) else ""),
+                "power_v": _safe_float(powers[i] if i < len(powers) else ""),
+            }
+        )
 
     # Build the full wavelength axis from col 0. Inactive wavelengths get NaN so every
     # measurement row stays aligned with wavelengths_nm regardless of sensor type.
@@ -142,8 +216,8 @@ def parse_spectral_file(file_path: Path) -> dict:
 
         if model not in result:
             result[model] = {
-                "instrument":   instr,
-                "wavelengths":  all_wavelengths,
+                "instrument": instr,
+                "wavelengths": all_wavelengths,
                 "measurements": [],
             }
 
@@ -154,7 +228,9 @@ def parse_spectral_file(file_path: Path) -> dict:
     return result
 
 
-def ingest_spectral_measurements(cur, sensor_id: int, rows: list, batch_size: int, dry_run: bool) -> int:
+def ingest_spectral_measurements(
+    cur, sensor_id: int, rows: list, batch_size: int, dry_run: bool
+) -> int:
     """
     Batch-inserts spectral measurement rows. One row per (sensor, timestamp).
     rows: list of (datetime, irradiances, exposure_ms, temp_c, power_v)
@@ -170,17 +246,18 @@ def ingest_spectral_measurements(cur, sensor_id: int, rows: list, batch_size: in
         if dry_run:
             logger.info(
                 "[DRY RUN] Would insert %d spectral rows for sensor %s",
-                len(batch_data), sensor_id,
+                len(batch_data),
+                sensor_id,
             )
             continue
         psycopg2.extras.execute_values(
             cur,
             """
             INSERT INTO spectral_measurement
-                (time, spectral_sensor_id, irradiance_w_m2_um,
+                (timestamp, spectral_sensor_id, irradiance_w_m2_um,
                  exposure_time_ms, sensor_temp_c, power_v)
             VALUES %s
-            ON CONFLICT (spectral_sensor_id, time) DO NOTHING
+            ON CONFLICT (spectral_sensor_id, timestamp) DO NOTHING
             """,
             batch_data,
             page_size=len(batch_data),
@@ -189,7 +266,9 @@ def ingest_spectral_measurements(cur, sensor_id: int, rows: list, batch_size: in
     return inserted
 
 
-def ingest_spectral_file(conn, csv_path: Path, log_key: str, batch_size: int, dry_run: bool):
+def ingest_spectral_file(
+    conn, csv_path: Path, log_key: str, batch_size: int, dry_run: bool
+):
     """Wraps spectral file parsing and insertion with ingestion_log lifecycle management."""
     log_id = None
     with conn.cursor() as cur:
@@ -229,7 +308,10 @@ def ingest_spectral_file(conn, csv_path: Path, log_key: str, batch_size: int, dr
             total_inserted += n
             logger.info(
                 "Committed %d new spectral rows from %s (model=%s, parsed=%d)",
-                n, csv_path.name, model, len(info["measurements"]),
+                n,
+                csv_path.name,
+                model,
+                len(info["measurements"]),
             )
 
         with conn.cursor() as cur:
@@ -242,7 +324,28 @@ def ingest_spectral_file(conn, csv_path: Path, log_key: str, batch_size: int, dr
                 (total_inserted, log_id),
             )
         conn.commit()
-        logger.info("Spectral file %s completed: %d new rows inserted", log_key, total_inserted)
+        logger.info(
+            "Spectral file %s completed: %d new rows inserted", log_key, total_inserted
+        )
+
+    except SpectralFileStructureError as exc:
+        conn.rollback()
+        error_msg = f"structure mismatch: {exc}"
+        logger.error(
+            "Spectral file %s does not match expected layout — skipping: %s",
+            csv_path.name,
+            exc,
+        )
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE ingestion_log
+                SET status='failed', completed_at=now(), error_message=%s
+                WHERE id=%s
+                """,
+                (error_msg, log_id),
+            )
+        conn.commit()
 
     except Exception as exc:
         conn.rollback()
@@ -263,16 +366,14 @@ def ingest_spectral_file(conn, csv_path: Path, log_key: str, batch_size: int, dr
 def discover_pending_spectral_files(conn, spectral_root: Path) -> list:
     """Returns CSV paths under spectral_root not yet marked completed in ingestion_log."""
     all_files = sorted(
-        f for f in spectral_root.rglob("*.CSV")
-        if SPECTRAL_FILE_RE.match(f.name)
+        f for f in spectral_root.rglob("*.CSV") if SPECTRAL_FILE_RE.match(f.name)
     )
     with conn.cursor() as cur:
-        cur.execute(
-            "SELECT folder_name FROM ingestion_log WHERE status = 'completed'"
-        )
+        cur.execute("SELECT folder_name FROM ingestion_log WHERE status = 'completed'")
         completed_keys = {row[0] for row in cur.fetchall()}
 
     return [
-        f for f in all_files
+        f
+        for f in all_files
         if f"spectral:{f.relative_to(spectral_root)}" not in completed_keys
     ]
