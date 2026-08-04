@@ -206,15 +206,29 @@ def _sync_setup_rows_from_editor():
     editor_state = st.session_state.get("setup_editor")
     if not editor_state:
         return
+    date_columns = {"connect_date", "disconnect_date"}
     df = pd.DataFrame(st.session_state.setup_rows, columns=SETUP_COLUMNS)
     for row_index, changes in editor_state.get("edited_rows", {}).items():
         for col, value in changes.items():
+            if col in date_columns and isinstance(value, str):
+                try:
+                    value = _cell_date(value)
+                except (TypeError, ValueError):
+                    pass
             df.at[int(row_index), col] = value
     deleted_rows = editor_state.get("deleted_rows")
     if deleted_rows:
         df = df.drop(index=deleted_rows)
     added_rows = editor_state.get("added_rows")
     if added_rows:
+        for added_row in added_rows:
+            for col in date_columns:
+                value = added_row.get(col)
+                if isinstance(value, str):
+                    try:
+                        added_row[col] = _cell_date(value)
+                    except (TypeError, ValueError):
+                        pass
         added_df = pd.DataFrame(added_rows, columns=SETUP_COLUMNS)
         df = pd.concat([df, added_df], ignore_index=True)
     else:
