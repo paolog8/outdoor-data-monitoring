@@ -51,6 +51,28 @@ SETUP_COLUMNS = [
     "experiment",
     "disconnect_date",
 ]
+SETUP_DATE_COLUMNS = {"connect_date", "disconnect_date"}
+SETUP_NUMERIC_COLUMNS = {"area_cm2", "initial_pce"}
+SETUP_TEXT_COLUMNS = [
+    col
+    for col in SETUP_COLUMNS
+    if col not in SETUP_DATE_COLUMNS and col not in SETUP_NUMERIC_COLUMNS
+]
+
+
+def _build_setup_df(rows):
+    """Builds the setup grid DataFrame with explicit dtypes. A column that is
+    None in every row would otherwise be inferred as float64 by pandas (NaN),
+    which the TextColumn/SelectboxColumn/DateColumn configs reject as an
+    incompatible dtype for editing."""
+    df = pd.DataFrame(rows, columns=SETUP_COLUMNS)
+    for col in SETUP_TEXT_COLUMNS:
+        df[col] = df[col].astype(object)
+    for col in SETUP_DATE_COLUMNS:
+        df[col] = df[col].astype(object)
+    for col in SETUP_NUMERIC_COLUMNS:
+        df[col] = pd.to_numeric(df[col], errors="coerce")
+    return df
 
 
 st.title("Cell Events")
@@ -206,11 +228,10 @@ def _sync_setup_rows_from_editor():
     editor_state = st.session_state.get("setup_editor")
     if not editor_state:
         return
-    date_columns = {"connect_date", "disconnect_date"}
-    df = pd.DataFrame(st.session_state.setup_rows, columns=SETUP_COLUMNS)
+    df = _build_setup_df(st.session_state.setup_rows)
     for row_index, changes in editor_state.get("edited_rows", {}).items():
         for col, value in changes.items():
-            if col in date_columns and isinstance(value, str):
+            if col in SETUP_DATE_COLUMNS and isinstance(value, str):
                 try:
                     value = _cell_date(value)
                 except (TypeError, ValueError):
@@ -222,14 +243,14 @@ def _sync_setup_rows_from_editor():
     added_rows = editor_state.get("added_rows")
     if added_rows:
         for added_row in added_rows:
-            for col in date_columns:
+            for col in SETUP_DATE_COLUMNS:
                 value = added_row.get(col)
                 if isinstance(value, str):
                     try:
                         added_row[col] = _cell_date(value)
                     except (TypeError, ValueError):
                         pass
-        added_df = pd.DataFrame(added_rows, columns=SETUP_COLUMNS)
+        added_df = _build_setup_df(added_rows)
         df = pd.concat([df, added_df], ignore_index=True)
     else:
         df = df.reset_index(drop=True)
@@ -733,7 +754,7 @@ def _render_setup_tab():
     column_order = [col for col in SETUP_COLUMNS if use_board_channel or col != "ch"]
 
     edited_df = st.data_editor(
-        pd.DataFrame(st.session_state.setup_rows, columns=SETUP_COLUMNS),
+        _build_setup_df(st.session_state.setup_rows),
         column_config=column_config,
         column_order=column_order,
         num_rows="dynamic",
