@@ -195,6 +195,33 @@ def _clear_and_rerun():
     st.rerun()
 
 
+def _sync_setup_rows_from_editor():
+    """Folds the live setup_editor widget state (edits/adds/deletes made in
+    the grid but not yet reflected in setup_rows) back into setup_rows.
+    Needed before any rerun triggered from within the Setup tab (e.g.
+    registering a new scientist/experiment) that changes a SelectboxColumn's
+    options — that changes the data_editor's widget signature, which makes
+    Streamlit drop its in-progress edit state and re-seed from setup_rows,
+    silently wiping unsaved grid changes unless we capture them first."""
+    editor_state = st.session_state.get("setup_editor")
+    if not editor_state:
+        return
+    df = pd.DataFrame(st.session_state.setup_rows, columns=SETUP_COLUMNS)
+    for row_index, changes in editor_state.get("edited_rows", {}).items():
+        for col, value in changes.items():
+            df.at[int(row_index), col] = value
+    deleted_rows = editor_state.get("deleted_rows")
+    if deleted_rows:
+        df = df.drop(index=deleted_rows)
+    added_rows = editor_state.get("added_rows")
+    if added_rows:
+        added_df = pd.DataFrame(added_rows, columns=SETUP_COLUMNS)
+        df = pd.concat([df, added_df], ignore_index=True)
+    else:
+        df = df.reset_index(drop=True)
+    st.session_state.setup_rows = df.to_dict("records")
+
+
 def _render_date_picker(prefix):
     def _set_today():
         st.session_state[f"{prefix}_event_date"] = date.today()
@@ -552,6 +579,7 @@ def _render_setup_tab():
             if not new_sci_name.strip():
                 st.error("Name is required.")
             else:
+                _sync_setup_rows_from_editor()
                 upsert_scientist(new_sci_name, new_sci_affiliation)
                 _clear_and_rerun()
     with col_new_experiment, st.expander("+ Register new experiment"):
@@ -560,6 +588,7 @@ def _render_setup_tab():
             if not new_experiment_name.strip():
                 st.error("Name is required.")
             else:
+                _sync_setup_rows_from_editor()
                 upsert_experiment(new_experiment_name)
                 _clear_and_rerun()
 
@@ -625,6 +654,7 @@ def _render_setup_tab():
         key="setup_preset_sensors",
     )
     if st.button("Apply to all rows", key="setup_apply_preset") and preset_sensors:
+        _sync_setup_rows_from_editor()
         st.session_state.setup_preset_sensor_ids = [
             sensor_id_by_label[label] for label in preset_sensors
         ]
