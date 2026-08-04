@@ -361,6 +361,14 @@ populated by the ingestion pipeline.
 `mpp_connection_event` is an append-only event log. Current connection state is always derived
 by finding the latest event for a given cell or slot — there is no separate "current state" table.
 
+A `BEFORE INSERT OR UPDATE` trigger (`trg_check_mpp_connection_event_coherence`, added in V40)
+enforces that, per `mpp_tracking_slot_id`, `event_type` strictly alternates between `'connection'`
+and `'disconnection'` when ordered by `timestamp`. This rejects inserting a `'connection'` event
+into a slot that already has an unresolved `'connection'` (and the mirror case of an extra
+`'disconnection'`), including backfilled events landing inside an already-resolved interval. The
+check only compares against the immediate neighboring events for that slot, so it assumes history
+is coherent up to the point the row is written.
+
 ### Derive current connection state
 
 **What cell is currently in slot X?**
