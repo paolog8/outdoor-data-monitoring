@@ -391,11 +391,41 @@ clock — tracker slots are sampled sequentially, and sensors on their own inter
 per row). Pass `p_bucket_interval` to get one averaged row per `time_bucket`, aligned across all
 cells/sensors — this is what you want for any multi-cell wide comparison.
 
-For large exports, pivot server-side instead of pulling tidy rows into pandas: `scripts/export_experiment_wide_csv.sql`
-uses the `tablefunc` extension's `crosstab()` to stream an already-wide CSV straight out of Postgres.
-Tidy rows are ~4x the row count of wide (one row per series vs. one row per timestamp), so for a
-500MB+ tidy export, pivoting first avoids transferring and holding all of that redundancy just to
-throw most of it away in pandas.
+### Getting a wide table instead
+
+`measurements_for_experiment_wide` (V42) returns the same data reshaped to one row per timestamp,
+still as a normal queryable table (works in psql, DBeaver, `pd.read_sql`, ...) — it packs the
+per-cell/series values for each timestamp into a single `JSONB` column instead of a fixed set of
+`DOUBLE PRECISION` columns, since the column *set* still varies per experiment (same constraint as
+V41) and can't be the function's static return type:
+
+```sql
+SELECT * FROM measurements_for_experiment_wide('Exp1', NULL, NULL, '1 minute');
+--        timestamp        |                          series
+-- ------------------------+-----------------------------------------------------------
+--  2024-01-01 00:00:00+00 | {"Cell_A_power": 6, "Cell_A_current": 0.01, ...}
+```
+
+This is the one to reach for by default — one query, no pivoting step. psycopg2 (and therefore
+`pandas.read_sql`) deserializes `JSONB` into a native Python `dict` automatically, so flattening to a
+wide DataFrame is one line:
+
+```python
+df = pd.read_sql(
+    "SELECT * FROM measurements_for_experiment_wide(%s, %s, %s, %s)",
+    conn, params=['Exp1', None, None, '1 minute'],
+)
+wide = pd.json_normalize(df['series']).set_index(df['timestamp'])
+```
+
+As with V41, pass `p_bucket_interval` — without it, different cells'/sensors' readings rarely land
+on the same timestamp, so most rows' `series` would have only one key.
+
+For a genuinely flat CSV (e.g. for Excel, or anything that can't parse a JSON column), pivot fully
+server-side instead: `scripts/export_experiment_wide_csv.sql` uses the `tablefunc` extension's
+`crosstab()` to stream real `power_<cell>`-style columns straight out of Postgres as CSV. Tidy rows
+(V41) are ~4x the row count of wide, so for very large exports this avoids pulling all of that
+redundancy into pandas just to throw most of it away.
 
 ---
 
