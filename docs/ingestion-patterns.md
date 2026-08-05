@@ -421,11 +421,14 @@ wide = pd.json_normalize(df['series']).set_index(df['timestamp'])
 As with V41, pass `p_bucket_interval` — without it, different cells'/sensors' readings rarely land
 on the same timestamp, so most rows' `series` would have only one key.
 
-For a genuinely flat CSV (e.g. for Excel, or anything that can't parse a JSON column), pivot fully
-server-side instead: `scripts/export_experiment_wide_csv.sql` uses the `tablefunc` extension's
-`crosstab()` to stream real `power_<cell>`-style columns straight out of Postgres as CSV. Tidy rows
-(V41) are ~4x the row count of wide, so for very large exports this avoids pulling all of that
-redundancy into pandas just to throw most of it away.
+For a genuinely flat table (real `power_<cell>`-style `DOUBLE PRECISION` columns, not a JSONB blob
+— e.g. for Excel, or a large CSV export where JSON keys repeated on every row would bloat the file),
+use `scripts/export_experiment_wide_csv.sql` instead. It pivots via the `tablefunc` extension's
+`crosstab()` in two plain SQL statements (no `psql`-specific meta-commands, works from any SQL
+client): the first discovers the column list, you paste it into the second, which returns the wide
+result set directly. This is unavoidably two steps — in Postgres (as in SQL Server/Oracle's `PIVOT`),
+a query's column list must be fixed before it runs, and which cells/sensors are in an experiment
+isn't known until you've looked.
 
 ---
 
