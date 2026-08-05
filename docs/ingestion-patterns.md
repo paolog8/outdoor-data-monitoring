@@ -391,6 +391,12 @@ clock — tracker slots are sampled sequentially, and sensors on their own inter
 per row). Pass `p_bucket_interval` to get one averaged row per `time_bucket`, aligned across all
 cells/sensors — this is what you want for any multi-cell wide comparison.
 
+For large exports, pivot server-side instead of pulling tidy rows into pandas: `scripts/export_experiment_wide_csv.sql`
+uses the `tablefunc` extension's `crosstab()` to stream an already-wide CSV straight out of Postgres.
+Tidy rows are ~4x the row count of wide (one row per series vs. one row per timestamp), so for a
+500MB+ tidy export, pivoting first avoids transferring and holding all of that redundancy just to
+throw most of it away in pandas.
+
 ---
 
 ## Solar cell and connection tracking
