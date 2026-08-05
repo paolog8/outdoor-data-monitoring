@@ -351,6 +351,46 @@ In bucketed mode:
 - Do not go smaller than your data collection interval. If data is recorded every 5 seconds, a `'1 second'` bucket would return the same data as raw with added overhead.
 - Typical choices: `'10 seconds'` for real-time monitoring, `'1 minute'` for hourly views, `'1 hour'` for multi-day overviews, `'1 day'` for long-term trends.
 
+## Querying all measurements for an experiment
+
+`measurements_for_experiment` (V41) returns MPP + sensor measurements for every solar cell
+attached to a named experiment (via `solar_cell_experiment`), in one call. Same
+`p_start`/`p_end`/`p_bucket_interval` signature as `mpp_measurements_for_cell`:
+
+```sql
+SELECT * FROM measurements_for_experiment('Exp1');
+SELECT * FROM measurements_for_experiment('Exp1', '2024-06-01', '2024-07-01', '1 minute');
+```
+
+It does **not** return one wide row per timestamp with a `power_<cell>` / `<sensor>_<quantity>_<cell>`
+column per cell — a Postgres function's `RETURNS TABLE` column list is fixed at creation time, but
+which cells (and which sensors) belong to an experiment varies over time and across experiments.
+Instead it returns a long/tidy table, one row per `(timestamp, cell_name, series_name)`:
+
+| Column | Type | Meaning |
+|---|---|---|
+| `timestamp` | `TIMESTAMPTZ` | Timestamp of the measurement (or bucket start when downsampling) |
+| `cell_name` | `TEXT` | Which solar cell this row belongs to |
+| `series_name` | `TEXT` | `'power'`, `'current'`, `'voltage'`, or `'<sensor name>_<quantity>'` (e.g. `'TempSensor01_temperature'`) for sensor readings |
+| `value` | `DOUBLE PRECISION` | The measurement value |
+
+Sensor series are named after the actual associated sensor (not just its type), because a cell's
+associated sensor can change over time (`sensor_association_event`) — different time ranges for the
+same cell may legitimately come from different physical sensors. Spectral sensors are excluded, same
+reasoning as `mpp_measurements_with_sensors_for_cell`.
+
+To get the wide shape (one column per cell/series) for plotting or export, pivot client-side:
+
+```python
+df.pivot_table(index='timestamp', columns=['cell_name', 'series_name'], values='value')
+```
+
+Raw MPP readings and raw sensor readings across different cells are **not** necessarily on the same
+clock — tracker slots are sampled sequentially, and sensors on their own interval. Pivoting raw
+(`p_bucket_interval` omitted) output to wide will therefore be sparse (mostly NaN, one non-null value
+per row). Pass `p_bucket_interval` to get one averaged row per `time_bucket`, aligned across all
+cells/sensors — this is what you want for any multi-cell wide comparison.
+
 ---
 
 ## Solar cell and connection tracking
