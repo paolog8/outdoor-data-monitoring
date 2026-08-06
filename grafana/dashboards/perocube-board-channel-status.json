@@ -70,7 +70,7 @@
         }
       ],
       "options": {
-        "cellHeight": "md",
+        "cellHeight": "lg",
         "footer": {
           "show": false,
           "reducer": [
@@ -142,7 +142,8 @@
               {
                 "id": "custom.cellOptions",
                 "value": {
-                  "type": "color-background"
+                  "type": "color-background",
+                  "wrapText": true
                 }
               },
               {
