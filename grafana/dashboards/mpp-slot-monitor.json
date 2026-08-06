@@ -14,12 +14,25 @@
         "datasource": { "type": "postgres", "uid": "ffk21zlrlrqioe" },
         "enable": true,
         "hide": false,
-        "iconColor": "#FF9830",
-        "name": "Connection events",
+        "iconColor": "#73BF69",
+        "name": "Connections",
         "target": {
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT\n  e.timestamp AS time,\n  e.event_type || ' — ' || sc.name ||\n    COALESCE(' (' || mcm.code || COALESCE(', ' || mp.code, '') || ')', '') AS text,\n  e.event_type AS tags\nFROM mpp_connection_event e\nJOIN mpp_tracking_slot s ON s.id = e.mpp_tracking_slot_id\nJOIN mpp_tracker t ON t.id = s.mpp_tracker_id\nJOIN solar_cell sc ON sc.id = e.solar_cell_id\nLEFT JOIN mpp_connection_mode mcm ON mcm.id = e.mode_id\nLEFT JOIN mpp_polarity mp ON mp.id = e.polarity_id\nWHERE t.name = '$tracker'\n  AND s.slot_code = '$slot'\n  AND $__timeFilter(e.timestamp)",
+          "rawSql": "SELECT\n  e.timestamp AS time,\n  e.event_type || ' — ' || sc.name ||\n    COALESCE(' (' || mcm.code || COALESCE(', ' || mp.code, '') || ')', '') AS text,\n  e.event_type AS tags\nFROM mpp_connection_event e\nJOIN mpp_tracking_slot s ON s.id = e.mpp_tracking_slot_id\nJOIN mpp_tracker t ON t.id = s.mpp_tracker_id\nJOIN solar_cell sc ON sc.id = e.solar_cell_id\nLEFT JOIN mpp_connection_mode mcm ON mcm.id = e.mode_id\nLEFT JOIN mpp_polarity mp ON mp.id = e.polarity_id\nWHERE t.name = '$tracker'\n  AND s.slot_code = '$slot'\n  AND e.event_type = 'connection'\n  AND $__timeFilter(e.timestamp)",
+          "refId": "Anno"
+        }
+      },
+      {
+        "datasource": { "type": "postgres", "uid": "ffk21zlrlrqioe" },
+        "enable": true,
+        "hide": false,
+        "iconColor": "#F2495C",
+        "name": "Disconnections",
+        "target": {
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT\n  e.timestamp AS time,\n  e.event_type || ' — ' || sc.name ||\n    COALESCE(' (' || mcm.code || COALESCE(', ' || mp.code, '') || ')', '') AS text,\n  e.event_type AS tags\nFROM mpp_connection_event e\nJOIN mpp_tracking_slot s ON s.id = e.mpp_tracking_slot_id\nJOIN mpp_tracker t ON t.id = s.mpp_tracker_id\nJOIN solar_cell sc ON sc.id = e.solar_cell_id\nLEFT JOIN mpp_connection_mode mcm ON mcm.id = e.mode_id\nLEFT JOIN mpp_polarity mp ON mp.id = e.polarity_id\nWHERE t.name = '$tracker'\n  AND s.slot_code = '$slot'\n  AND e.event_type = 'disconnection'\n  AND $__timeFilter(e.timestamp)",
           "refId": "Anno"
         }
       }
