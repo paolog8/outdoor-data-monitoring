@@ -1,0 +1,282 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": { "type": "grafana", "uid": "-- Grafana --" },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      },
+      {
+        "datasource": { "type": "postgres", "uid": "ffk21zlrlrqioe" },
+        "enable": true,
+        "hide": false,
+        "iconColor": "#FF9830",
+        "name": "Connection events",
+        "target": {
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT\n  e.timestamp AS time,\n  e.event_type || ' — ' || sc.name ||\n    COALESCE(' (' || mcm.code || COALESCE(', ' || mp.code, '') || ')', '') AS text,\n  e.event_type AS tags\nFROM mpp_connection_event e\nJOIN mpp_tracking_slot s ON s.id = e.mpp_tracking_slot_id\nJOIN mpp_tracker t ON t.id = s.mpp_tracker_id\nJOIN solar_cell sc ON sc.id = e.solar_cell_id\nLEFT JOIN mpp_connection_mode mcm ON mcm.id = e.mode_id\nLEFT JOIN mpp_polarity mp ON mp.id = e.polarity_id\nWHERE t.name = '$tracker'\n  AND s.slot_code = '$slot'\n  AND $__timeFilter(e.timestamp)",
+          "refId": "Anno"
+        }
+      }
+    ]
+  },
+  "description": "Per-slot deep dive — raw voltage/current/power for a single MPP tracking slot, independent of which cell is currently mounted, with connect/disconnect events marked on the timeline.",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "id": 1,
+      "title": "Slot Status — $tracker / $slot",
+      "description": "Current occupant and connection state, from mpp_tracker_status()",
+      "type": "table",
+      "gridPos": { "h": 4, "w": 24, "x": 0, "y": 0 },
+      "datasource": { "type": "postgres", "uid": "ffk21zlrlrqioe" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "postgres", "uid": "ffk21zlrlrqioe" },
+          "rawSql": "SELECT\n  slot_code       AS \"Slot\",\n  is_connected    AS \"Connected\",\n  cell_name       AS \"Cell\",\n  mode_code       AS \"Mode\",\n  polarity_code   AS \"Polarity\",\n  connected_since AS \"Connected Since\"\nFROM mpp_tracker_status('$tracker')\nWHERE slot_code = '$slot'",
+          "format": "table"
+        }
+      ],
+      "options": {
+        "cellHeight": "sm",
+        "footer": { "show": false, "reducer": ["sum"], "countRows": false, "fields": "" },
+        "showHeader": true
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "align": "left", "cellOptions": { "type": "auto" }, "filterable": false, "inspect": false },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "true": { "text": "connected", "color": "#73BF69", "index": 0 },
+                "false": { "text": "empty", "color": "#8E8E8E", "index": 1 }
+              }
+            }
+          ],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "Connected" },
+            "properties": [{ "id": "custom.cellOptions", "value": { "type": "color-text" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Connected Since" },
+            "properties": [{ "id": "unit", "value": "dateTimeAsIso" }]
+          }
+        ]
+      }
+    },
+    {
+      "id": 2,
+      "title": "Power Over Time",
+      "description": "Raw MPP power measured on this slot, regardless of which cell was mounted. Orange markers show connect/disconnect events.",
+      "type": "timeseries",
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 4 },
+      "datasource": { "type": "postgres", "uid": "ffk21zlrlrqioe" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "postgres", "uid": "ffk21zlrlrqioe" },
+          "rawSql": "SELECT\n  time_bucket(INTERVAL '1 millisecond' * $__interval_ms, f.timestamp) AS time,\n  AVG(f.power) AS \"Power\"\nFROM mpp_measurement_flat f\nWHERE f.tracker_name = '$tracker'\n  AND f.slot_code = '$slot'\n  AND $__timeFilter(f.timestamp)\nGROUP BY 1\nORDER BY 1",
+          "format": "time_series"
+        }
+      ],
+      "options": {
+        "tooltip": { "mode": "single", "sort": "none" },
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": false }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "fixed", "fixedColor": "#73BF69" },
+          "custom": {
+            "axisLabel": "Power (mW)",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 25,
+            "gradientMode": "opacity",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": { "type": "linear" },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": { "group": "A", "mode": "none" },
+            "thresholdsStyle": { "mode": "off" }
+          },
+          "mappings": [],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] },
+          "unit": "mwatt"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 3,
+      "title": "Voltage & Current",
+      "description": "Voltage (left axis) and current (right axis) for this slot",
+      "type": "timeseries",
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 13 },
+      "datasource": { "type": "postgres", "uid": "ffk21zlrlrqioe" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "postgres", "uid": "ffk21zlrlrqioe" },
+          "rawSql": "SELECT\n  time_bucket(INTERVAL '1 millisecond' * $__interval_ms, f.timestamp) AS time,\n  AVG(f.voltage) AS \"Voltage (V)\",\n  AVG(f.current) AS \"Current (A)\"\nFROM mpp_measurement_flat f\nWHERE f.tracker_name = '$tracker'\n  AND f.slot_code = '$slot'\n  AND $__timeFilter(f.timestamp)\nGROUP BY 1\nORDER BY 1",
+          "format": "time_series"
+        }
+      ],
+      "options": {
+        "tooltip": { "mode": "multi", "sort": "none" },
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": false }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "opacity",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": { "type": "linear" },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": { "group": "A", "mode": "none" },
+            "thresholdsStyle": { "mode": "off" }
+          },
+          "mappings": [],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "Voltage (V)" },
+            "properties": [
+              { "id": "color", "value": { "mode": "fixed", "fixedColor": "#5794F2" } },
+              { "id": "unit", "value": "volt" },
+              { "id": "custom.axisLabel", "value": "Voltage (V)" },
+              { "id": "custom.axisColorMode", "value": "series" }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Current (A)" },
+            "properties": [
+              { "id": "color", "value": { "mode": "fixed", "fixedColor": "#B877D9" } },
+              { "id": "unit", "value": "amp" },
+              { "id": "custom.axisPlacement", "value": "right" },
+              { "id": "custom.axisLabel", "value": "Current (A)" },
+              { "id": "custom.axisColorMode", "value": "series" }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": 4,
+      "title": "Connection Events — $tracker / $slot",
+      "description": "Every connect/disconnect event recorded for this slot, newest first",
+      "type": "table",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 22 },
+      "datasource": { "type": "postgres", "uid": "ffk21zlrlrqioe" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "postgres", "uid": "ffk21zlrlrqioe" },
+          "rawSql": "SELECT\n  e.timestamp             AS \"When\",\n  e.event_type             AS \"Event\",\n  sc.name                  AS \"Cell\",\n  COALESCE(mcm.code, '—')  AS \"Mode\",\n  COALESCE(mp.code, '—')   AS \"Polarity\"\nFROM mpp_connection_event e\nJOIN mpp_tracking_slot s ON s.id = e.mpp_tracking_slot_id\nJOIN mpp_tracker t       ON t.id = s.mpp_tracker_id\nJOIN solar_cell sc       ON sc.id = e.solar_cell_id\nLEFT JOIN mpp_connection_mode mcm ON mcm.id = e.mode_id\nLEFT JOIN mpp_polarity mp   ON mp.id = e.polarity_id\nWHERE t.name = '$tracker'\n  AND s.slot_code = '$slot'\n  AND $__timeFilter(e.timestamp)\nORDER BY e.timestamp DESC",
+          "format": "table"
+        }
+      ],
+      "options": {
+        "cellHeight": "sm",
+        "footer": { "show": false, "reducer": ["sum"], "countRows": false, "fields": "" },
+        "showHeader": true,
+        "sortBy": []
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "align": "left", "cellOptions": { "type": "auto" }, "filterable": true, "inspect": false },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "connection": { "text": "connection", "color": "#73BF69", "index": 0 },
+                "disconnection": { "text": "disconnection", "color": "#F2495C", "index": 1 }
+              }
+            }
+          ],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "When" },
+            "properties": [{ "id": "unit", "value": "dateTimeAsIso" }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Event" },
+            "properties": [{ "id": "custom.cellOptions", "value": { "type": "color-text" } }]
+          }
+        ]
+      }
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": ["mpp", "slot", "connections"],
+  "templating": {
+    "list": [
+      {
+        "name": "tracker",
+        "label": "Tracker",
+        "type": "query",
+        "datasource": { "type": "postgres", "uid": "ffk21zlrlrqioe" },
+        "definition": "SELECT name FROM mpp_tracker ORDER BY name",
+        "query": "SELECT name FROM mpp_tracker ORDER BY name",
+        "refresh": 1,
+        "sort": 1,
+        "multi": false,
+        "includeAll": false,
+        "current": {},
+        "options": [],
+        "hide": 0
+      },
+      {
+        "name": "slot",
+        "label": "Slot",
+        "type": "query",
+        "datasource": { "type": "postgres", "uid": "ffk21zlrlrqioe" },
+        "definition": "SELECT s.slot_code FROM mpp_tracking_slot s JOIN mpp_tracker t ON t.id = s.mpp_tracker_id WHERE t.name = '$tracker' ORDER BY s.slot_code",
+        "query": "SELECT s.slot_code FROM mpp_tracking_slot s JOIN mpp_tracker t ON t.id = s.mpp_tracker_id WHERE t.name = '$tracker' ORDER BY s.slot_code",
+        "refresh": 1,
+        "sort": 1,
+        "multi": false,
+        "includeAll": false,
+        "current": {},
+        "options": [],
+        "hide": 0
+      }
+    ]
+  },
+  "time": { "from": "now-30d", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "MPP Slot Monitor",
+  "uid": "outdoor-mpp-slot-monitor",
+  "version": 1,
+  "weekStart": ""
+}
