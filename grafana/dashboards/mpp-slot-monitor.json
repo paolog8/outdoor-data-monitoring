@@ -46,34 +46,35 @@
   "links": [],
   "panels": [
     {
-      "id": 1,
-      "title": "Slot Status — $tracker / $slot",
-      "description": "Current occupant and connection state, from mpp_tracker_status()",
+      "id": 4,
+      "title": "Connection Events — $tracker / $slot",
+      "description": "Every connect/disconnect event ever recorded for this slot, newest first. Independent of the dashboard time range — events are sparse (only on reassignment) so a range filter would hide them whenever the slot was last touched outside the visible window.",
       "type": "table",
-      "gridPos": { "h": 4, "w": 24, "x": 0, "y": 0 },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 0 },
       "datasource": { "type": "postgres", "uid": "ffk21zlrlrqioe" },
       "targets": [
         {
           "refId": "A",
           "datasource": { "type": "postgres", "uid": "ffk21zlrlrqioe" },
-          "rawSql": "SELECT\n  slot_code       AS \"Slot\",\n  is_connected    AS \"Connected\",\n  cell_name       AS \"Cell\",\n  mode_code       AS \"Mode\",\n  polarity_code   AS \"Polarity\",\n  connected_since AS \"Connected Since\"\nFROM mpp_tracker_status('$tracker')\nWHERE slot_code = '$slot'",
+          "rawSql": "SELECT\n  e.timestamp             AS \"When\",\n  e.event_type             AS \"Event\",\n  sc.name                  AS \"Cell\",\n  COALESCE(mcm.code, '—')  AS \"Mode\",\n  COALESCE(mp.code, '—')   AS \"Polarity\"\nFROM mpp_connection_event e\nJOIN mpp_tracking_slot s ON s.id = e.mpp_tracking_slot_id\nJOIN mpp_tracker t       ON t.id = s.mpp_tracker_id\nJOIN solar_cell sc       ON sc.id = e.solar_cell_id\nLEFT JOIN mpp_connection_mode mcm ON mcm.id = e.mode_id\nLEFT JOIN mpp_polarity mp   ON mp.id = e.polarity_id\nWHERE t.name = '$tracker'\n  AND s.slot_code = '$slot'\nORDER BY e.timestamp DESC",
           "format": "table"
         }
       ],
       "options": {
         "cellHeight": "sm",
         "footer": { "show": false, "reducer": ["sum"], "countRows": false, "fields": "" },
-        "showHeader": true
+        "showHeader": true,
+        "sortBy": []
       },
       "fieldConfig": {
         "defaults": {
-          "custom": { "align": "left", "cellOptions": { "type": "auto" }, "filterable": false, "inspect": false },
+          "custom": { "align": "left", "cellOptions": { "type": "auto" }, "filterable": true, "inspect": false },
           "mappings": [
             {
               "type": "value",
               "options": {
-                "true": { "text": "connected", "color": "#73BF69", "index": 0 },
-                "false": { "text": "empty", "color": "#8E8E8E", "index": 1 }
+                "connection": { "text": "connection", "color": "#73BF69", "index": 0 },
+                "disconnection": { "text": "disconnection", "color": "#F2495C", "index": 1 }
               }
             }
           ],
@@ -81,12 +82,12 @@
         },
         "overrides": [
           {
-            "matcher": { "id": "byName", "options": "Connected" },
-            "properties": [{ "id": "custom.cellOptions", "value": { "type": "color-text" } }]
+            "matcher": { "id": "byName", "options": "When" },
+            "properties": [{ "id": "unit", "value": "dateTimeAsIso" }]
           },
           {
-            "matcher": { "id": "byName", "options": "Connected Since" },
-            "properties": [{ "id": "unit", "value": "dateTimeAsIso" }]
+            "matcher": { "id": "byName", "options": "Event" },
+            "properties": [{ "id": "custom.cellOptions", "value": { "type": "color-text" } }]
           }
         ]
       }
@@ -96,7 +97,7 @@
       "title": "Power Over Time",
       "description": "Raw MPP power measured on this slot, regardless of which cell was mounted. Orange markers show connect/disconnect events.",
       "type": "timeseries",
-      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 4 },
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 8 },
       "datasource": { "type": "postgres", "uid": "ffk21zlrlrqioe" },
       "targets": [
         {
@@ -142,7 +143,7 @@
       "title": "Voltage & Current",
       "description": "Voltage (left axis) and current (right axis) for this slot",
       "type": "timeseries",
-      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 13 },
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 17 },
       "datasource": { "type": "postgres", "uid": "ffk21zlrlrqioe" },
       "targets": [
         {
@@ -196,53 +197,6 @@
               { "id": "custom.axisLabel", "value": "Current (A)" },
               { "id": "custom.axisColorMode", "value": "series" }
             ]
-          }
-        ]
-      }
-    },
-    {
-      "id": 4,
-      "title": "Connection Events — $tracker / $slot",
-      "description": "Every connect/disconnect event ever recorded for this slot, newest first. Independent of the dashboard time range — events are sparse (only on reassignment) so a range filter would hide them whenever the slot was last touched outside the visible window.",
-      "type": "table",
-      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 22 },
-      "datasource": { "type": "postgres", "uid": "ffk21zlrlrqioe" },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": { "type": "postgres", "uid": "ffk21zlrlrqioe" },
-          "rawSql": "SELECT\n  e.timestamp             AS \"When\",\n  e.event_type             AS \"Event\",\n  sc.name                  AS \"Cell\",\n  COALESCE(mcm.code, '—')  AS \"Mode\",\n  COALESCE(mp.code, '—')   AS \"Polarity\"\nFROM mpp_connection_event e\nJOIN mpp_tracking_slot s ON s.id = e.mpp_tracking_slot_id\nJOIN mpp_tracker t       ON t.id = s.mpp_tracker_id\nJOIN solar_cell sc       ON sc.id = e.solar_cell_id\nLEFT JOIN mpp_connection_mode mcm ON mcm.id = e.mode_id\nLEFT JOIN mpp_polarity mp   ON mp.id = e.polarity_id\nWHERE t.name = '$tracker'\n  AND s.slot_code = '$slot'\nORDER BY e.timestamp DESC",
-          "format": "table"
-        }
-      ],
-      "options": {
-        "cellHeight": "sm",
-        "footer": { "show": false, "reducer": ["sum"], "countRows": false, "fields": "" },
-        "showHeader": true,
-        "sortBy": []
-      },
-      "fieldConfig": {
-        "defaults": {
-          "custom": { "align": "left", "cellOptions": { "type": "auto" }, "filterable": true, "inspect": false },
-          "mappings": [
-            {
-              "type": "value",
-              "options": {
-                "connection": { "text": "connection", "color": "#73BF69", "index": 0 },
-                "disconnection": { "text": "disconnection", "color": "#F2495C", "index": 1 }
-              }
-            }
-          ],
-          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] }
-        },
-        "overrides": [
-          {
-            "matcher": { "id": "byName", "options": "When" },
-            "properties": [{ "id": "unit", "value": "dateTimeAsIso" }]
-          },
-          {
-            "matcher": { "id": "byName", "options": "Event" },
-            "properties": [{ "id": "custom.cellOptions", "value": { "type": "color-text" } }]
           }
         ]
       }
