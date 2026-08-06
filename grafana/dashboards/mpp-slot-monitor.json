@@ -190,7 +190,7 @@
     {
       "id": 4,
       "title": "Connection Events — $tracker / $slot",
-      "description": "Every connect/disconnect event recorded for this slot, newest first",
+      "description": "Every connect/disconnect event ever recorded for this slot, newest first. Independent of the dashboard time range — events are sparse (only on reassignment) so a range filter would hide them whenever the slot was last touched outside the visible window.",
       "type": "table",
       "gridPos": { "h": 8, "w": 24, "x": 0, "y": 22 },
       "datasource": { "type": "postgres", "uid": "ffk21zlrlrqioe" },
@@ -198,7 +198,7 @@
         {
           "refId": "A",
           "datasource": { "type": "postgres", "uid": "ffk21zlrlrqioe" },
-          "rawSql": "SELECT\n  e.timestamp             AS \"When\",\n  e.event_type             AS \"Event\",\n  sc.name                  AS \"Cell\",\n  COALESCE(mcm.code, '—')  AS \"Mode\",\n  COALESCE(mp.code, '—')   AS \"Polarity\"\nFROM mpp_connection_event e\nJOIN mpp_tracking_slot s ON s.id = e.mpp_tracking_slot_id\nJOIN mpp_tracker t       ON t.id = s.mpp_tracker_id\nJOIN solar_cell sc       ON sc.id = e.solar_cell_id\nLEFT JOIN mpp_connection_mode mcm ON mcm.id = e.mode_id\nLEFT JOIN mpp_polarity mp   ON mp.id = e.polarity_id\nWHERE t.name = '$tracker'\n  AND s.slot_code = '$slot'\n  AND $__timeFilter(e.timestamp)\nORDER BY e.timestamp DESC",
+          "rawSql": "SELECT\n  e.timestamp             AS \"When\",\n  e.event_type             AS \"Event\",\n  sc.name                  AS \"Cell\",\n  COALESCE(mcm.code, '—')  AS \"Mode\",\n  COALESCE(mp.code, '—')   AS \"Polarity\"\nFROM mpp_connection_event e\nJOIN mpp_tracking_slot s ON s.id = e.mpp_tracking_slot_id\nJOIN mpp_tracker t       ON t.id = s.mpp_tracker_id\nJOIN solar_cell sc       ON sc.id = e.solar_cell_id\nLEFT JOIN mpp_connection_mode mcm ON mcm.id = e.mode_id\nLEFT JOIN mpp_polarity mp   ON mp.id = e.polarity_id\nWHERE t.name = '$tracker'\n  AND s.slot_code = '$slot'\nORDER BY e.timestamp DESC",
           "format": "table"
         }
       ],
