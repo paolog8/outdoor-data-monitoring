@@ -23,6 +23,27 @@
   "links": [],
   "panels": [
     {
+      "id": 2,
+      "title": "Legend",
+      "type": "text",
+      "gridPos": {
+        "h": 3,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "datasource": null,
+      "targets": [],
+      "options": {
+        "mode": "markdown",
+        "content": "**Cell color = connection mode** \u2014 <span style=\"color:#73BF69\">\u25a0</span> `mpp_tracking`&nbsp;&nbsp; <span style=\"color:#5794F2\">\u25a0</span> `short_circuit`&nbsp;&nbsp; <span style=\"color:#FF9830\">\u25a0</span> `open_circuit`&nbsp;&nbsp; <span style=\"color:#3A3A3A\">\u25a0</span> empty (\u2014). Cell text is the connected solar cell's name. Status is shown as of the dashboard's **To** time ($__timeTo()) \u2014 navigate the time range to see historical state."
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      }
+    },
+    {
       "id": 1,
       "title": "Board / Channel Status \u2014 $tracker",
       "description": "Snapshot of every board and channel at the selected time (dashboard 'To' time, via $__timeTo() \u2014 navigate the time range to see historical state). Cell text is the connected solar cell's name; color indicates connection mode. Empty channels are shown as \u2014.",
@@ -31,7 +52,7 @@
         "h": 18,
         "w": 24,
         "x": 0,
-        "y": 0
+        "y": 3
       },
       "datasource": {
         "type": "postgres",
