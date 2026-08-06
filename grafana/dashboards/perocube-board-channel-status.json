@@ -27,7 +27,7 @@
       "title": "Legend",
       "type": "text",
       "gridPos": {
-        "h": 3,
+        "h": 4,
         "w": 24,
         "x": 0,
         "y": 0
@@ -36,7 +36,7 @@
       "targets": [],
       "options": {
         "mode": "markdown",
-        "content": "**Cell color = connection mode** \u2014 <span style=\"color:#73BF69\">\u25a0</span> `mpp_tracking`&nbsp;&nbsp; <span style=\"color:#5794F2\">\u25a0</span> `short_circuit`&nbsp;&nbsp; <span style=\"color:#FF9830\">\u25a0</span> `open_circuit`&nbsp;&nbsp; <span style=\"color:#3A3A3A\">\u25a0</span> empty (\u2014). Cell text is the connected solar cell's name. Status is shown as of the dashboard's **To** time ($__timeTo()) \u2014 navigate the time range to see historical state."
+        "content": "**Status as of: ${__to:date:YYYY-MM-DD HH:mm:ss}** (the dashboard's *To* time \u2014 change the time range to see historical state)\n\n**Cell color = connection mode** \u2014 <span style=\"color:#73BF69\">\u25a0</span> `mpp_tracking`&nbsp;&nbsp; <span style=\"color:#5794F2\">\u25a0</span> `short_circuit`&nbsp;&nbsp; <span style=\"color:#FF9830\">\u25a0</span> `open_circuit`&nbsp;&nbsp; <span style=\"color:#3A3A3A\">\u25a0</span> empty (\u2014). Cell text is the connected solar cell's name."
       },
       "fieldConfig": {
         "defaults": {},
@@ -45,14 +45,14 @@
     },
     {
       "id": 1,
-      "title": "Board / Channel Status \u2014 $tracker",
-      "description": "Snapshot of every board and channel at the selected time (dashboard 'To' time, via $__timeTo() \u2014 navigate the time range to see historical state). Cell text is the connected solar cell's name; color indicates connection mode. Empty channels are shown as \u2014.",
+      "title": "Board / Channel Status \u2014 $tracker (as of ${__to:date:YYYY-MM-DD HH:mm:ss})",
+      "description": "Snapshot of every board and channel as of the dashboard's 'To' time \u2014 navigate the time range to see historical state. Cell text is the connected solar cell's name; color indicates connection mode. Empty channels are shown as \u2014.",
       "type": "table",
       "gridPos": {
         "h": 18,
         "w": 24,
         "x": 0,
-        "y": 3
+        "y": 4
       },
       "datasource": {
         "type": "postgres",
