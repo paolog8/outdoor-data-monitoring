@@ -900,18 +900,23 @@ def _render_setup_tab():
                             }
                         )
 
-            insert_events(db_rows_mpp)
+            n_inserted_mpp = insert_events(db_rows_mpp)
             insert_sensor_association_events(db_rows_sensor)
             n_disconnects = sum(
                 1 for row in resolved_rows if row["disconnect_date"] is not None
             )
             msg = (
-                f"Inserted {len(db_rows_mpp)} MPP event(s) and "
+                f"Inserted {n_inserted_mpp} MPP event(s) and "
                 f"{len(db_rows_sensor)} sensor event(s) for {len(resolved_rows)} cell(s)."
             )
             if n_disconnects:
                 msg += (
                     f" ({n_disconnects} row(s) include disconnect/dissociate events.)"
+                )
+            n_skipped_mpp = len(db_rows_mpp) - n_inserted_mpp
+            if n_skipped_mpp:
+                msg += (
+                    f" Skipped {n_skipped_mpp} MPP event(s) already on record."
                 )
             st.success(msg)
             st.session_state.setup_rows = []
@@ -1082,11 +1087,17 @@ def _render_teardown_tab():
                     st.error(error)
                 return
 
-            insert_events(db_rows_mpp)
+            n_inserted_mpp = insert_events(db_rows_mpp)
             insert_sensor_association_events(db_rows_sensor)
-            st.success(
-                f"Inserted {len(db_rows_mpp)} MPP event(s) and {len(db_rows_sensor)} sensor event(s) for {len(st.session_state.teardown)} cell(s)."
+            msg = (
+                f"Inserted {n_inserted_mpp} MPP event(s) and "
+                f"{len(db_rows_sensor)} sensor event(s) for "
+                f"{len(st.session_state.teardown)} cell(s)."
             )
+            n_skipped_mpp = len(db_rows_mpp) - n_inserted_mpp
+            if n_skipped_mpp:
+                msg += f" Skipped {n_skipped_mpp} MPP event(s) already on record."
+            st.success(msg)
             st.session_state.teardown = []
             _clear_and_rerun()
         except Exception as exc:

@@ -483,19 +483,45 @@ def ensure_cell(name):
 
 
 def insert_events(rows):
+    """Inserts connection events, silently skipping any row that duplicates an
+    event already on record (same slot, cell, type and timestamp) — this
+    happens when a Setup/Teardown row round-trips a cell that's already in
+    the requested state, and would otherwise trip
+    check_mpp_connection_event_coherence(). Returns the number of rows
+    actually inserted."""
     if not rows:
-        return
+        return 0
     with get_connection() as conn, conn.cursor() as cur:
-        psycopg2.extras.execute_batch(
-            cur,
+        cur.execute(
             """
-            INSERT INTO mpp_connection_event
-                (event_type, mode_id, polarity_id, timestamp, solar_cell_id, mpp_tracking_slot_id)
-            VALUES (%(event_type)s, %(mode_id)s, %(polarity_id)s, %(timestamp)s, %(cell_id)s, %(slot_id)s)
+            SELECT mpp_tracking_slot_id, solar_cell_id, event_type, timestamp
+            FROM mpp_connection_event
+            WHERE mpp_tracking_slot_id = ANY(%s)
             """,
-            rows,
+            (list({row["slot_id"] for row in rows}),),
         )
+        existing = {
+            (slot_id, cell_id, event_type, timestamp)
+            for slot_id, cell_id, event_type, timestamp in cur.fetchall()
+        }
+        new_rows = [
+            row
+            for row in rows
+            if (row["slot_id"], row["cell_id"], row["event_type"], row["timestamp"])
+            not in existing
+        ]
+        if new_rows:
+            psycopg2.extras.execute_batch(
+                cur,
+                """
+                INSERT INTO mpp_connection_event
+                    (event_type, mode_id, polarity_id, timestamp, solar_cell_id, mpp_tracking_slot_id)
+                VALUES (%(event_type)s, %(mode_id)s, %(polarity_id)s, %(timestamp)s, %(cell_id)s, %(slot_id)s)
+                """,
+                new_rows,
+            )
         conn.commit()
+        return len(new_rows)
 
 
 @st.cache_data(ttl=30)
