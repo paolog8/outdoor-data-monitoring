@@ -6,3 +6,7 @@ docker-compose.override.yml
 *.org
 __pycache__/
 *.pyc
+
+# local dev stack data (hard links to ./data)
+dev-data/
+dev-migrations/

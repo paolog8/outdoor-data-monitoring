@@ -1,0 +1,74 @@
+# Local development stack. Use via scripts/dev.sh (or:
+#   docker compose --env-file .env.dev -f docker-compose.yml -f docker-compose.dev.yml ...).
+#
+# Fully isolated from production: own project name, own volumes, own container names,
+# throwaway credentials from .env.dev, ports bound to localhost only, no SymmetricDS
+# (so nothing can replicate to the hub). Production images are reused unchanged, so the
+# database engine and migrations match the measurement PC.
+name: outdoor-dev
+
+x-proxy-build-args: &proxy-build-args
+  - HTTP_PROXY
+  - HTTPS_PROXY
+  - NO_PROXY
+  - http_proxy
+  - https_proxy
+  - no_proxy
+
+services:
+  postgres:
+    container_name: outdoor-dev-postgres
+    restart: "no"
+    env_file: !override [.env.dev]
+    ports: !override
+      - "127.0.0.1:5440:5432"
+
+  # Applies the top-level migrations/V*.sql only (refreshed by scripts/dev.sh), i.e. what
+  # production applies. Work-in-progress files in subfolders are not picked up.
+  flyway:
+    env_file: !override [.env.dev]
+    volumes: !override
+      - ./dev-migrations:/flyway/sql:ro
+
+  # Replication to the hub is never part of the dev stack.
+  symmetricds:
+    container_name: outdoor-dev-symmetricds
+    profiles: [replication]
+
+  # Ingestion is run on demand (scripts/dev.sh ingest), not as an hourly cron.
+  ingestion:
+    profiles: [ingest]
+    restart: "no"
+    env_file: !override [.env.dev]
+    build:
+      args: *proxy-build-args
+    volumes: !override
+      - ./dev-data:/data:ro
+    depends_on: !override
+      postgres:
+        condition: service_healthy
+      flyway:
+        condition: service_completed_successfully
+
+  dashboard:
+    restart: "no"
+    env_file: !override [.env.dev]
+    build:
+      args: *proxy-build-args
+    ports: !override
+      - "127.0.0.1:8502:8501"
+
+  # Optional: scripts/dev.sh grafana
+  grafana:
+    container_name: outdoor-dev-grafana
+    profiles: [grafana]
+    restart: "no"
+    ports: !override
+      - "127.0.0.1:3001:3000"
+    volumes: !override
+      - grafana_dev_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/repo-dashboards:ro
+
+volumes:
+  grafana_dev_data:
