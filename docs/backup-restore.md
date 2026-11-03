@@ -71,7 +71,16 @@ Limits:
 ## Known gaps
 - The only copy is on the laptop. A second location is still to be chosen.
 - The first `full` dump and its restore test are pending until the first night run completes.
-- The database contains objects that no migration creates (for example the procedure
-  `fix_table_timezone` and the table `tz_fix_progress`, left from a one-off correction). The
-  procedure deletes and reinserts whole months with shifted timestamps; **do not run it
-  again** on data that has already been corrected.
+- The production database contains objects that no migration creates (found by comparing
+  `pg_dump --schema-only` of production with a database built from `migrations/`, ignoring the
+  SymmetricDS `sym_*` objects). They exist only in the database and in the dumps:
+  - procedure `fix_table_timezone(p_table_name, p_time_column)` and table `tz_fix_progress`,
+    left from a one-off correction. The procedure deletes and reinserts whole months with
+    shifted timestamps; **do not run it again** on data that has already been corrected;
+  - functions `experiment_get_cells`, `mpp_measurements_experiment`,
+    `mpp_measurements_for_cell_v2`;
+  - view `solar_cell_info_view`.
+
+  A database rebuilt only from `migrations/` will lack them. Whether they are still used (for
+  example by dashboards on the hub) is to be checked before deciding to add them to the
+  migrations or drop them.
