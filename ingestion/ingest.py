@@ -1,7 +1,7 @@
 """
 MPP data ingestion pipeline for the PeroCube outdoor monitoring system.
 
-Scans DATA_ROOT for new export folders (data_YYYYMMDD/), ingests each
+Scans DATA_ROOT for new export folders (data_YYYYMMDD/ and early all_YYYYMMDD/), ingests each
 output_boardN_channelN.txt file into the mpp_measurement hypertable, and
 records progress in ingestion_log for idempotent re-runs.
 """
@@ -11,13 +11,13 @@ import os
 import sys
 from pathlib import Path
 
-from constants import DEFAULT_BATCH_SIZE, FOLDER_RE
+from constants import DEFAULT_BATCH_SIZE, FOLDER_RE, FOLDER_RE_OLD
 from db import get_connection
 from irradiance import ingest_irradiance_folder
 from mpp import ingest_mpp_folder
 from registry import build_slot_map, ensure_registry
 from spectral import discover_pending_spectral_files, ingest_spectral_file
-from temperature import ingest_temperature_folder
+from temperature import ingest_temperature_csv_folder, ingest_temperature_folder
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +31,7 @@ def discover_pending_folders(conn, data_root: Path) -> list:
     all_folders = sorted(
         d.name
         for d in data_root.iterdir()
-        if d.is_dir() and FOLDER_RE.match(d.name)
+        if d.is_dir() and (FOLDER_RE.match(d.name) or FOLDER_RE_OLD.match(d.name))
     )
     with conn.cursor() as cur:
         cur.execute(
@@ -57,7 +57,9 @@ def process_folder(conn, slot_map: dict, folder_name: str, data_root: Path, batc
         log_id = cur.fetchone()[0]
     conn.commit()
 
-    folder_path = data_root / folder_name / "data"
+    # Daily exports keep their files in <folder>/data/, the early ones directly in <folder>/.
+    early = bool(FOLDER_RE_OLD.match(folder_name))
+    folder_path = data_root / folder_name if early else data_root / folder_name / "data"
     if not folder_path.is_dir():
         msg = f"Data subdirectory not found: {folder_path}"
         logger.error(msg)
@@ -70,9 +72,12 @@ def process_folder(conn, slot_map: dict, folder_name: str, data_root: Path, batc
         return
 
     try:
-        n  = ingest_mpp_folder(conn, slot_map, folder_path, batch_size, dry_run)
-        n += ingest_temperature_folder(conn, folder_path, batch_size, dry_run)
-        n += ingest_irradiance_folder(conn, folder_path, batch_size, dry_run)
+        n = ingest_mpp_folder(conn, slot_map, folder_path, batch_size, dry_run)
+        if early:
+            n += ingest_temperature_csv_folder(conn, folder_path, batch_size, dry_run)
+        else:
+            n += ingest_temperature_folder(conn, folder_path, batch_size, dry_run)
+            n += ingest_irradiance_folder(conn, folder_path, batch_size, dry_run)
         with conn.cursor() as cur:
             cur.execute(
                 """

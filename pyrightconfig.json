@@ -1,0 +1,5 @@
+{
+  "extraPaths": ["ingestion"],
+  "venvPath": ".",
+  "venv": ".venv"
+}
