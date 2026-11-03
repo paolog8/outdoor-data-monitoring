@@ -18,7 +18,7 @@ data exports ──► ingestion (daily cron) ──► Postgres/TimescaleDB ─
 |---|---|
 | `postgres` | TimescaleDB 2.25.2 on pg17, database `outdoor_monitoring`, port 5432 |
 | `flyway` | Applies `migrations/` on startup (see `migrations/` for the current version) |
-| `ingestion` | Cron container: runs `ingest.py` daily at 02:00 and once at startup |
+| `ingestion` | Cron container: runs `ingest.py` hourly (at minute 35) and once at startup |
 | `dashboard` | Streamlit app on port 8501 (registry + events UI) |
 | `symmetricds` | Edge replication node, pushes to the hub (port 31415) |
 | `grafana` | Local Grafana 13.0.2, port 3000 |
@@ -42,6 +42,11 @@ Measurement software periodically exports folders into `data/`:
 - `data/mppt_temp_irr/data_YYYYMMDD/data/` — `output_board<N>_channel<M>.txt` (MPP),
   temperature, and irradiance files
 - `data/spectral_data/` — spectral CSV files
+
+Each `data_YYYYMMDD` folder is one export: the date is the day it was made, and it holds
+everything recorded since the previous export. Timestamps in the files are local time
+(Europe/Berlin); ingestion stores them as UTC. Early exports live in `all_YYYYMMDD/` with a
+flat layout and are ingested as well.
 
 The `ingestion` container scans for folders/files not yet marked `completed` in
 `ingestion_log` and ingests them idempotently (UNIQUE constraints + upserts), so
@@ -84,6 +89,32 @@ Migrations are Flyway-versioned SQL in `migrations/`, applied automatically on
 with version numbers offset by **+3** (it inserted its own early migrations). Append the
 new file there with the offset number; never renumber existing files.
 
+## Development and tests
+
+The measurement PC is production: develop and test somewhere else.
+
+```bash
+scripts/sync-data.sh        # copy the export folders from the PC to ./data (read-only on the PC)
+scripts/dev.sh up           # local stack: own database (localhost:5440), migrations, dashboard (:8502)
+scripts/dev.sh seed data_20240222 data_20251126   # choose exports to ingest into the dev database
+scripts/dev.sh ingest       # run ingestion over ./dev-data
+scripts/dev.sh psql         # open psql in the dev database
+pip install -r requirements-dev.txt && pytest       # parser tests; database tests need INGEST_TEST_DB=1
+scripts/compare_with_production.py data_20240222    # compare dev results with production (read-only)
+```
+
+The dev stack (`docker-compose.dev.yml`) uses the production images, applies only the
+top-level `migrations/V*.sql` files, and never starts SymmetricDS. CI runs the same tests
+against a fresh TimescaleDB with the migrations applied.
+
+Branches: work on feature branches, merge into `develop` after tests pass; `main` is what runs
+on the PC, updated only by merging `develop`.
+
+## Backups
+
+The PC has no backup of its own. `scripts/backup.sh` pulls dumps to another machine over ssh;
+see `docs/backup-restore.md` for what is kept, how to restore, and known gaps.
+
 ## Operations quick reference
 
 ```bash
@@ -102,4 +133,5 @@ If data age keeps growing while local ingestion succeeds, SymmetricDS is stalled
 - `docs/ingestion-patterns.md` — ingestion pipeline patterns, file formats
 - `docs/sensor-data-model.md` — sensor supertype/subtype design
 - `docs/solar-cell-data-model.md` — cell registry, grouping model, example queries
+- `docs/backup-restore.md` — backups, restore procedure, production-only database objects
 - `docs/improvement-backlog.md` — known gaps and planned improvements
