@@ -50,11 +50,17 @@ Use `daily-*.dump` the same way to get everything except the measurements. Then 
 stack; Flyway finds the schema history and applies nothing that is already there.
 
 ### Verified
-The `daily` dump was restored into a scratch database and compared with production: all 73
-non-measurement tables had identical row counts, and the object counts matched (215
-functions and procedures, 6 views, 104 triggers, 4 hypertables). Repeat this check after any
-change to the backup script. Restoring a `full` dump has to be tested once as well
-(see "Known gaps").
+- **Daily dump:** restored into a scratch database and compared with production: all 73
+  non-measurement tables had identical row counts, and the object counts matched (215
+  functions and procedures, 6 views, 104 triggers, 4 hypertables).
+- **Full dump (2026-11-03):** 6.9 GB, pulled in 8 minutes; restored into a scratch database in
+  23 minutes (64 GB). Exact row counts per month of `mpp_measurement` (61 months, 619,674,435
+  rows), `temperature_measurement` (23,496,173) and `irradiance_measurement` (4,848,348)
+  were identical to production, as were the small tables, the object counts and the 683
+  chunks. Only the SymmetricDS bookkeeping tables differed slightly, because the replication
+  engine keeps writing after the snapshot.
+
+Repeat these checks after any change to the backup script.
 
 ## If only the database is lost: rebuild from the exports
 
@@ -70,7 +76,6 @@ Limits:
 
 ## Known gaps
 - The only copy is on the laptop. A second location is still to be chosen.
-- The first `full` dump and its restore test are pending until the first night run completes.
 - The production database contains objects that no migration creates (found by comparing
   `pg_dump --schema-only` of production with a database built from `migrations/`, ignoring the
   SymmetricDS `sym_*` objects). They exist only in the database and in the dumps:
