@@ -10,3 +10,7 @@ __pycache__/
 # local dev stack data (hard links to ./data)
 dev-data/
 dev-migrations/
+
+# local virtualenv
+.venv/
+.pytest_cache/
