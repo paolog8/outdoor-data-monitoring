@@ -6,11 +6,13 @@ The ingestion service (`ingestion/`) is split into one module per data type. `in
 
 ```
 ingestion/
-  constants.py     — shared constants and compiled regexes (BOARDS, CHANNELS, *_FILE_RE, …)
+  constants.py     — shared constants and compiled regexes (BOARDS, CHANNELS, *_FILE_RE, LOCAL_TZ, …)
+  timeutil.py      — local_to_utc(): converts the naive local timestamps of the export files to UTC
   db.py            — get_connection() — reads PG* env vars, returns a psycopg2 connection
   registry.py      — ensure_registry(), build_slot_map(), upsert_{temperature,irradiance,spectral}_sensor()
   mpp.py           — parse_file(), ingest_file(), ingest_mpp_folder()
-  temperature.py   — parse_temperature_file(), ingest_temperature_measurements(), ingest_temperature_folder()
+  temperature.py   — parse_temperature_file(), ingest_temperature_measurements(), ingest_temperature_folder(),
+                     parse_temperature_csv(), ingest_temperature_csv_folder() (early export format)
   irradiance.py    — parse_irradiance_file(), ingest_irradiance_measurements(), ingest_irradiance_folder()
   spectral.py      — parse_spectral_file(), ingest_spectral_measurements(), ingest_spectral_file(),
                      discover_pending_spectral_files()
@@ -18,6 +20,21 @@ ingestion/
 ```
 
 Each data-type module is fully self-contained: it owns its parser, its DB writer, and (if needed) its sensor-registry upsert. `ingest.py` imports the folder-level functions and wires them together inside `process_folder`.
+
+## Export folders and timestamps
+
+- **An export folder is not a day.** `data_YYYYMMDD` is one export made on that date; it holds
+  everything recorded since the previous export. Consecutive exports are contiguous.
+- **Two layouts.** Daily exports keep their files in `data_YYYYMMDD/data/`
+  (`output_board<N>_channel<M>.txt`, `m7004_ID_<hex>.txt`, `PT-104_channel_<NN>.txt`). The early
+  exports, `all_YYYYMMDD/`, hold the files directly in the folder and use one
+  `TemperatureLog*.csv` for all temperature sensors (see "Temperature ingestion"). Other files in
+  those folders (`IDs___*.csv`, `errorLog.txt`, `.picolog` archives, zips) are not ingested.
+- **Timestamps are local time.** The measurement software writes naive timestamps in the PC's
+  local time (Europe/Berlin). Every parser converts them with `timeutil.local_to_utc()`, so the
+  database holds the matching UTC instant. Do not attach `timezone.utc` to a parsed timestamp.
+  The system only records during the day, so the repeated hour at the end of summer time holds no
+  data; if it did, the first occurrence would be used.
 
 ## Adding a new sensor type
 
@@ -171,6 +188,18 @@ timestamp    temperature[°C]
 Sensor identity comes from the hex serial number in the filename. Sensors are upserted into
 `temperature_sensor` using `serial_number` as the unique key
 (constraint `uq_temperature_sensor_serial_number`).
+
+### Early format (`all_*` folders)
+
+`TemperatureLog*.csv` is comma-separated with one column per sensor:
+
+```
+time, A100000A109B7628, 3900000A10BB0D28
+2021-11-19T17:21:12,12.5,12.5
+```
+
+The sensor serials are the column names, stripped of the space after the comma. Empty, invalid
+and NaN cells are skipped. Rows go through the same `ingest_temperature_measurements()` writer.
 
 ```sql
 INSERT INTO temperature_measurement (timestamp, temperature_sensor_id, temperature)

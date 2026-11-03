@@ -6,6 +6,7 @@ from pathlib import Path
 import psycopg2.extras
 from constants import IRRADIANCE_FILE_RE
 from registry import upsert_irradiance_sensor
+from timeutil import local_to_utc
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +30,7 @@ def parse_irradiance_file(file_path: Path) -> list:
                 continue
             try:
                 ts = datetime.datetime.fromisoformat(row[0])
-                ts = ts.replace(tzinfo=datetime.timezone.utc)
+                ts = local_to_utc(ts)
                 raw_value = int(row[1])
                 irradiance = float(row[2])
                 rows.append((ts, raw_value, irradiance))

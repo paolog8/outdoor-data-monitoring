@@ -5,6 +5,7 @@ from pathlib import Path
 
 import psycopg2.extras
 from constants import BOARDS, CHANNELS, SLOT_CODE_PATTERN
+from timeutil import local_to_utc
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +29,7 @@ def parse_file(file_path: Path) -> list:
                 continue
             try:
                 ts = datetime.datetime.fromisoformat(row[0])
-                ts = ts.replace(tzinfo=datetime.timezone.utc)
+                ts = local_to_utc(ts)
                 power = float(row[1])
                 current = float(row[2])
                 voltage = float(row[3])

@@ -32,3 +32,48 @@ jobs:
               sys.exit(f"missing migration versions: {sorted(missing)}")
           print(f"Migrations OK: V{versions[0]}–V{versions[-1]} ({len(versions)} files)")
           EOF
+
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: timescale/timescaledb:2.25.2-pg17
+        env:
+          POSTGRES_DB: outdoor_test
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U test -d outdoor_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install test dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Apply migrations (Flyway, same image as production)
+        run: |
+          docker run --rm --network host \
+            -v "${{ github.workspace }}/migrations:/flyway/sql:ro" \
+            -e FLYWAY_URL=jdbc:postgresql://localhost:5432/outdoor_test \
+            -e FLYWAY_USER=test -e FLYWAY_PASSWORD=test \
+            -e FLYWAY_PLACEHOLDERS_SYM_PASSWORD=test \
+            flyway/flyway:11-alpine migrate
+
+      - name: Parser and ingestion tests
+        env:
+          INGEST_TEST_DB: "1"
+          PGHOST: localhost
+          PGPORT: "5432"
+          PGDATABASE: outdoor_test
+          PGUSER: test
+          PGPASSWORD: test
+        run: pytest -q
