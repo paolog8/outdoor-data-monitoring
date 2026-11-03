@@ -8,7 +8,7 @@ PC: `pg_dump` runs inside the `postgres` container and streams its output to the
 
 | Mode | Contains | Size | Schedule | Kept |
 |---|---|---|---|---|
-| `daily` | Schema, roles, and every table except the measurement chunk data: registry, connection events, sensor associations, ingestion log, SymmetricDS configuration, functions and procedures | ~2.5 MB | daily, 08:30 | 60 |
+| `daily` | Schema, roles, and every table except the measurement chunk data: registry, connection events, sensor associations, ingestion log, SymmetricDS configuration, functions and procedures | ~2.5 MB | daily, 03:30 | 60 |
 | `full` | The whole database (about 66 GB, of which `mpp_measurement` is 63 GB) | tens of GB | Sundays, 22:00 | 3 |
 
 The **daily** dump is the one that matters most: registry, events and associations exist only
