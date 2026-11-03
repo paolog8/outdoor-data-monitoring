@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: timescale/timescaledb:latest-pg17
+    image: timescale/timescaledb:2.25.2-pg17
     container_name: postgres
     restart: unless-stopped
     env_file: .env
@@ -131,7 +131,7 @@ services:
         condition: service_completed_successfully
 
   grafana:
-    image: grafana/grafana-oss:latest
+    image: grafana/grafana-oss:13.0.2
     container_name: grafana
     ports:
       - "3000:3000"

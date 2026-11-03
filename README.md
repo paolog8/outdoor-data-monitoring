@@ -16,14 +16,20 @@ data exports ──► ingestion (daily cron) ──► Postgres/TimescaleDB ─
 
 | Service | Purpose |
 |---|---|
-| `postgres` | TimescaleDB (pg17), database `outdoor_monitoring`, port 5432 |
-| `flyway` | Applies `migrations/` on startup (currently V1–V31) |
+| `postgres` | TimescaleDB 2.25.2 on pg17, database `outdoor_monitoring`, port 5432 |
+| `flyway` | Applies `migrations/` on startup (see `migrations/` for the current version) |
 | `ingestion` | Cron container: runs `ingest.py` daily at 02:00 and once at startup |
 | `dashboard` | Streamlit app on port 8501 (registry + events UI) |
 | `symmetricds` | Edge replication node, pushes to the hub (port 31415) |
+| `grafana` | Local Grafana 13.0.2, port 3000 |
 
-Secrets come from `.env` (not committed): `POSTGRES_DB/USER/PASSWORD`, `SYM_PASSWORD`,
-`SYM_SERVER_ADDRESS/PORT`.
+Secrets come from `.env` (not committed); copy `.env.example` to `.env` and fill it in.
+Required: `POSTGRES_DB/USER/PASSWORD`, `SYM_PASSWORD`, `SYM_SERVER_ADDRESS/PORT`.
+Optional: `GRAFANA_PASSWORD` (Grafana admin password; **defaults to `admin` if unset**),
+`GRAFANA_BASE_URL`, `DRY_RUN`.
+
+Image versions are pinned (no `latest`), so a pull cannot change them unexpectedly. To
+upgrade, change the tag in `docker-compose.yml` and test before deploying.
 
 A local-development `docker-compose.override.yml` (gitignored) can disable the
 replication services via profiles and inject proxy build args. **Never deploy it to the
