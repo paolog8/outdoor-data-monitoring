@@ -71,13 +71,12 @@ All visualization/plotting happens in Grafana on the hub, not here.
 
 ## Database & migrations
 
-Schema reference: `CLAUDE.md` (tables, event-log pattern, helper functions). Migrations
-are Flyway-versioned SQL in `migrations/`, applied automatically on `docker compose up`.
+Migrations are Flyway-versioned SQL in `migrations/`, applied automatically on
+`docker compose up`. Table design is described in `docs/`.
 
 **When adding a migration:** the hub repo keeps a copy under `db/outdoor_migrations/`
 with version numbers offset by **+3** (it inserted its own early migrations). Append the
-new file there with the offset number; never renumber existing files. Details in
-`CLAUDE.md` ("Perocube replica divergence").
+new file there with the offset number; never renumber existing files.
 
 ## Operations quick reference
 

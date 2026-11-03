@@ -1,6 +1,4 @@
 .env
-.claude/
-CLAUDE.md
 
 data/
 docker-compose.override.yml

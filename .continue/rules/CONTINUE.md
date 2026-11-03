@@ -222,7 +222,6 @@ docker compose down
 
 2. **UI changes**:
    - Test with sample data via `docker compose up dashboard`
-   - Update `dashboard/CLAUDE.md` if architecture patterns change
 
 3. **Ingestion changes**:
    - Follow patterns in `docs/ingestion-patterns.md` for adding new sensor types
@@ -389,7 +388,6 @@ ORDER BY timestamp DESC;
 ### Documentation
 
 - **README.md**: Project overview and quick start
-- **dashboard/CLAUDE.md**: Dashboard architecture details
 - **docs/ingestion-patterns.md**: Data ingestion pipeline patterns
 - **docs/solar-cell-data-model.md**: Cell and group registry schema
 - **docs/sensor-data-model.md**: Sensor hierarchy design
