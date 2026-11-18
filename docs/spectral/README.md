@@ -39,3 +39,6 @@ dependency.
 `parser-evaluation.md` records what happened when the notebook was run against the
 spectral files available locally, including the layout differences between the 2018
 and 2025+ exports and how the output compares with `ingestion/spectral.py`.
+
+`db-readiness.md` checks the database schema against the data in those files and lists
+the remaining ingestion-side gaps.
