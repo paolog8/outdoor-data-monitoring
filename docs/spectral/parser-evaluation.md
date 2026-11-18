@@ -99,17 +99,25 @@ clock runs on local or UTC time, and the diurnal shape of the two files availabl
 not settle it (both hours were partly cloudy). This needs to be settled before
 historical spectra are aligned with other measurements.
 
-For the 2026 file the comparison cannot be made: `ingestion/spectral.py` rejects the
-file with
+For the 2026 file the comparison cannot be made at the time of the run:
+`ingestion/spectral.py` rejected the file with
 
 ```
 SpectralFileStructureError: row 7 col 0 is '300.00', expected 'Wavelength(nm)'
 ```
 
-`validate_spectral_structure` requires the `Wavelength(nm)` label row that the newer
-exports do not write. Any 2025+ spectral file is therefore refused by ingestion as a
+`validate_spectral_structure` required the `Wavelength(nm)` label row that the newer
+exports do not write. Any 2025+ spectral file was therefore refused by ingestion as a
 structure mismatch, while Marko's notebook accepts it and mis-parses it by one
-nanometre. Neither parser handles both layouts correctly today.
+nanometre: neither parser handled both layouts correctly.
+
+## Result after the layout fix
+
+`ingestion/spectral.py` now treats the label row as optional and starts the data at the
+first non-numeric wavelength cell, so both layouts parse to the same 300–1800 nm axis
+(1501 wavelengths). The 2026 file then yields 12 measurements per head with the 300 nm
+row included; the 2018 file is unchanged. Both layouts are covered by
+`ingestion/tests/test_parsers.py` with fixtures cut from the reference files.
 
 ## Conclusions
 
@@ -121,7 +129,7 @@ nanometre. Neither parser handles both layouts correctly today.
 - The notebook is not a drop-in parser: it drops the 300 nm row on new files, keeps no
   wavelength-per-file information, discards measurement metadata, does no validation
   and no time-zone conversion, and reloads everything on every run.
-- The repository parser has the mirror-image problem: it validates strictly but only
-  knows the 2018 layout.
+- The repository parser had the mirror-image problem: it validated strictly but only
+  knew the 2018 layout. That is fixed; see "Result after the layout fix".
 - `Merge` should stay a separate sensor (as decided for the ingestion), and the "sum
   both heads" recipe in the docs should not be used for a combined spectrum.
