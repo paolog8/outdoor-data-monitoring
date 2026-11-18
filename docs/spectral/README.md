@@ -33,3 +33,9 @@ the working directory and reads the Windows share directly, so a local run needs
 paths adjusted to a local copy of the CSVs. The committed file is not modified for such
 runs; a copy of the parsing code is enough, because `parse_file` has no database
 dependency.
+
+## Evaluation
+
+`parser-evaluation.md` records what happened when the notebook was run against the
+spectral files available locally, including the layout differences between the 2018
+and 2025+ exports and how the output compares with `ingestion/spectral.py`.
