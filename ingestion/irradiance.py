@@ -4,16 +4,18 @@ import logging
 from pathlib import Path
 
 import psycopg2.extras
-from constants import IRRADIANCE_FILE_RE
-from registry import upsert_irradiance_sensor
+from constants import IRRADIANCE_FILE_RE, MBOX_FILE_RE, MBOX_RAW_SCALE
+from registry import upsert_irradiance_sensor, upsert_mbox_irradiance_sensor
 from timeutil import local_to_utc
 
 logger = logging.getLogger(__name__)
 
 
-def parse_irradiance_file(file_path: Path) -> list:
+def parse_irradiance_file(file_path: Path, raw_scale: int = 1) -> list:
     """
-    Parses a TSV file with columns: timestamp, raw_value[uV], irradiance[W/m²].
+    Parses a TSV file with columns: timestamp, raw_value, irradiance[W/m²].
+    The raw value is multiplied by raw_scale and rounded to an integer (the M-Box files
+    hold a decimal in mV, see MBOX_RAW_SCALE).
     Returns list of (datetime, int, float) tuples.
     """
     rows = []
@@ -31,7 +33,7 @@ def parse_irradiance_file(file_path: Path) -> list:
             try:
                 ts = datetime.datetime.fromisoformat(row[0])
                 ts = local_to_utc(ts)
-                raw_value = int(row[1])
+                raw_value = int(row[1]) if raw_scale == 1 else round(float(row[1]) * raw_scale)
                 irradiance = float(row[2])
                 rows.append((ts, raw_value, irradiance))
             except (ValueError, OverflowError) as exc:
@@ -73,22 +75,32 @@ def ingest_irradiance_measurements(
     return inserted
 
 
+def match_irradiance_file(conn, name: str):
+    """Returns (sensor_id, raw_scale) for an irradiance file name, or None for other files."""
+    m = IRRADIANCE_FILE_RE.match(name)
+    if m:
+        return upsert_irradiance_sensor(conn, m.group(1)), 1
+    m = MBOX_FILE_RE.match(name)
+    if m:
+        return upsert_mbox_irradiance_sensor(conn, m.group(1)), MBOX_RAW_SCALE
+    return None
+
+
 def ingest_irradiance_folder(
     conn, folder_path: Path, batch_size: int, dry_run: bool
 ) -> int:
     """
-    Processes all PT-104 irradiance files within a folder.
+    Processes all PT-104 and M-Box (sun tracker) irradiance files within a folder.
     One transaction per file.
     """
     total_inserted = 0
     for file_path in sorted(folder_path.iterdir()):
-        m = IRRADIANCE_FILE_RE.match(file_path.name)
-        if not m:
+        match = match_irradiance_file(conn, file_path.name)
+        if not match:
             continue
-        channel = m.group(1)
-        sensor_id = upsert_irradiance_sensor(conn, channel)
+        sensor_id, raw_scale = match
 
-        rows = parse_irradiance_file(file_path)
+        rows = parse_irradiance_file(file_path, raw_scale)
         if not rows:
             logger.info("No valid rows in %s", file_path.name)
             continue

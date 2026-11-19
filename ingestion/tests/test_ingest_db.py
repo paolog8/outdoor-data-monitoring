@@ -113,6 +113,28 @@ def test_daily_export_is_stored_as_utc_and_ingestion_is_idempotent(conn, tmp_pat
     assert _scalar(conn, "SELECT count(*) FROM mpp_measurement WHERE timestamp < '2000-01-01'") == 2
 
 
+def test_sun_tracker_file_is_ingested_into_its_sensor(conn, tmp_path):
+    root = tmp_path / "mppt_temp_irr"
+    data = root / "data_19990710" / "data"
+    data.mkdir(parents=True)
+    (data / "mbox_ID_TESTMBOX99       .txt").write_bytes(
+        b"1999-01-15T10:00:00\t43.412\t878.794\r\n1999-07-09T10:00:00\t0.001\t0.012\r\n")
+
+    status, rows = _run(conn, root, "data_19990710")
+    assert status == "completed" and rows == 2
+    with conn.cursor() as cur:
+        cur.execute("""SELECT s.name, m.raw_value, m.irradiance FROM irradiance_measurement m
+                       JOIN irradiance_sensor s ON s.id=m.irradiance_sensor_id
+                       WHERE s.serial_number='TESTMBOX99' ORDER BY m.timestamp""")
+        assert cur.fetchall() == [("MBox_TESTMBOX99", 43412000, 878.794), ("MBox_TESTMBOX99", 1000, 0.012)]
+        cur.execute("SELECT id FROM irradiance_sensor WHERE serial_number='TESTMBOX99'")
+        sensor_id = cur.fetchone()[0]
+        cur.execute("DELETE FROM irradiance_measurement WHERE irradiance_sensor_id=%s", (sensor_id,))
+        cur.execute("DELETE FROM irradiance_sensor WHERE id=%s", (sensor_id,))
+        cur.execute("DELETE FROM sensor WHERE id=%s", (sensor_id,))
+    conn.commit()
+
+
 def test_early_export_with_temperature_csv(conn, tmp_path):
     root = tmp_path / "mppt_temp_irr"
     folder = root / "all_19990709"

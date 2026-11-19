@@ -154,3 +154,32 @@ def upsert_irradiance_sensor(conn, channel: str) -> int:
         sensor_id = cur.fetchone()[0]
     conn.commit()
     return sensor_id
+
+
+def upsert_mbox_irradiance_sensor(conn, serial_number: str) -> int:
+    """Idempotently register an EKO M-Box irradiance sensor by serial number. Returns irradiance_sensor.id."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT id FROM irradiance_sensor WHERE serial_number = %s",
+            (serial_number,),
+        )
+        row = cur.fetchone()
+        if row:
+            return row[0]
+
+        cur.execute(
+            "INSERT INTO sensor (sensor_type) VALUES ('irradiance') RETURNING id"
+        )
+        parent_id = cur.fetchone()[0]
+
+        cur.execute(
+            """
+            INSERT INTO irradiance_sensor (id, name, model, serial_number)
+            VALUES (%s, %s, 'EKO M-Box', %s)
+            RETURNING id
+            """,
+            (parent_id, f"MBox_{serial_number}", serial_number),
+        )
+        sensor_id = cur.fetchone()[0]
+    conn.commit()
+    return sensor_id

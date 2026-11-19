@@ -209,7 +209,7 @@ ON CONFLICT (temperature_sensor_id, timestamp) DO NOTHING;
 
 ## Irradiance ingestion
 
-Irradiance files (`PT-104_channel_??.txt`) are tab-separated with columns:
+Irradiance files (`PT-104_channel_??.txt`, see below for the sun tracker) are tab-separated with columns:
 
 ```
 timestamp    raw_value[uV]    irradiance[W/m²]
@@ -218,6 +218,14 @@ timestamp    raw_value[uV]    irradiance[W/m²]
 Sensor identity comes from the channel number in the filename (stored as `serial_number =
 'channel_NN'`). Sensors are upserted into `irradiance_sensor` using `serial_number` as the
 unique key (constraint `uq_irradiance_sensor_serial_number`).
+
+The sun tracker (EKO M-Box) writes `mbox_ID_<serial>.txt`, with blanks before the extension
+(`mbox_ID_S19057654       .txt`). It has the same three columns, but the second one is a
+decimal in mV (`43.412`) instead of an integer in nV. The serial comes from the file name and
+is looked up in `irradiance_sensor` (an unknown serial is registered as `MBox_<serial>`); the
+raw value is multiplied by 1,000,000 and rounded, so `raw_value` has the same unit as for
+the PT-104 channels. The mV unit is inferred by comparing with a PT-104 channel measured at
+the same time, not from documentation. Any other file name in the folder is ignored.
 
 ```sql
 INSERT INTO irradiance_measurement (timestamp, irradiance_sensor_id, irradiance, raw_value)
