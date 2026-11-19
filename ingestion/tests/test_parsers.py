@@ -9,9 +9,12 @@ from pathlib import Path
 
 import pytest
 
+import math
+
 from constants import FOLDER_RE, FOLDER_RE_OLD, TEMP_FILE_OLD_RE
 from irradiance import parse_irradiance_file
 from mpp import parse_file as parse_mpp_file
+from spectral import SpectralFileStructureError, parse_spectral_file
 from temperature import parse_temperature_csv, parse_temperature_file
 from timeutil import local_to_utc
 
@@ -122,6 +125,76 @@ def test_old_temperature_csv_skips_empty_and_invalid_cells(tmp_path):
     data = parse_temperature_csv(f)
     assert data["S1"] == [(utc(2022, 7, 1, 10, 0, 0), 20.5), (utc(2022, 7, 1, 10, 1, 0), 23.0)]
     assert data["S2"] == [(utc(2022, 7, 1, 10, 0, 30), 21.0), (utc(2022, 7, 1, 10, 1, 0), 23.5)]
+
+
+# --- spectral files ---------------------------------------------------------
+#
+# Two layouts are in the exports: 2025+ files have 7 header rows and start the data
+# at row 7, older files have a 'Wavelength(nm)' label row in row 7. Both must parse to
+# the same wavelength axis; the label row must not be mistaken for data or vice versa.
+# The timestamps are compared as wall-clock values on purpose: which time zone the
+# WISER writes is still open.
+
+def test_spectral_2025_layout_starts_at_300_nm():
+    data = parse_spectral_file(FIXTURES / "spectral_2026_no_label_row.CSV")
+    assert set(data) == {"MS-711", "MS-712"}
+    assert data["MS-711"]["wavelengths"] == [300.0, 301.0, 1800.0]
+    assert data["MS-711"]["instrument"] == "EKO WISER 35"
+
+    ts, irr, exp_ms, temp_c, power_v = data["MS-711"]["measurements"][0]
+    assert ts.replace(tzinfo=None) == datetime.datetime(2026, 2, 1, 12, 0)
+    assert irr[:2] == [0.37, 0.47]          # the 300 nm row must not be skipped
+    assert math.isnan(irr[2])
+    assert (exp_ms, temp_c, power_v) == (500, 23.9, 5.9)
+
+    ts, irr, *_ = data["MS-711"]["measurements"][1]
+    assert ts.replace(tzinfo=None) == datetime.datetime(2026, 2, 1, 12, 5)
+    assert irr[:2] == [0.38, 0.42]
+
+
+def test_spectral_inactive_wavelengths_are_nan_per_sensor():
+    data = parse_spectral_file(FIXTURES / "spectral_2026_no_label_row.CSV")
+    irr = data["MS-712"]["measurements"][0][1]
+    assert math.isnan(irr[0]) and math.isnan(irr[1])
+    assert irr[2] == 1.23
+    assert data["MS-712"]["measurements"][0][2] == 2000
+
+
+def test_spectral_2018_layout_with_label_row():
+    data = parse_spectral_file(FIXTURES / "spectral_2018_with_label_row.CSV")
+    assert set(data) == {"MS-711", "MS-712", "Merge"}
+    assert data["MS-711"]["wavelengths"] == [300.0, 301.0, 1800.0]
+    assert data["MS-711"]["instrument"] == "EKO WISER"
+    assert data["MS-711"]["measurements"][0][1][:2] == [22.08, 25.37]
+    irr_712 = data["MS-712"]["measurements"][0][1]
+    assert math.isnan(irr_712[0]) and math.isnan(irr_712[1])
+    assert irr_712[2] == 0.91
+    # Merge is its own sensor with values across the whole axis.
+    assert data["Merge"]["measurements"][0][1] == [22.08, 25.37, 0.91]
+
+
+def test_spectral_wrong_label_row_is_rejected(tmp_path):
+    f = tmp_path / "2026020112.CSV"
+    f.write_text(
+        "Date,2026/02/01,,\n"
+        "Time,12:00:00,,\n"
+        "Memo,EKO WISER 35,,\n"
+        "Sensor,MS-711,MS-712,\n"
+        "Exposure Time(msec),500,2000,\n"
+        "Sensor Temp.(deg),23.9,7.9,\n"
+        "Power(V),5.9,5.0,\n"
+        "Not a label row,Irradiance(W/m2/um),Irradiance(W/m2/um),\n"
+        "300.00,0.37,,\n"
+    )
+    with pytest.raises(SpectralFileStructureError, match="Wavelength"):
+        parse_spectral_file(f)
+
+
+def test_spectral_missing_header_row_is_rejected(tmp_path):
+    f = tmp_path / "2026020112.CSV"
+    f.write_text("Date,2026/02/01,,\n300.00,0.37,,\n")
+    with pytest.raises(SpectralFileStructureError):
+        parse_spectral_file(f)
 
 
 # --- folder / file name patterns ---------------------------------------------
