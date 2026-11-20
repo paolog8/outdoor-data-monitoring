@@ -63,7 +63,8 @@ run pick it up, or run immediately:
 docker compose run --rm ingestion python3 /app/ingest.py       # DRY_RUN=true to preview
 ```
 
-See `docs/ingestion-patterns.md` for file formats and how to add a new sensor type.
+See `docs/ingestion-patterns.md` for file formats and how to add a new sensor type, and
+`docs/sun-tracker-backfill.md` for refilling the sun tracker data from folders already ingested.
 
 ## Dashboard (Streamlit, port 8501)
 
