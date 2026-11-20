@@ -10,6 +10,10 @@ has the new code deployed.
 Unit: the second column is taken to be mV and is stored as nV integers
 (`round(value * 1_000_000)`), like the PT-104 channels.
 
+On the outdoor PC (checked 2026-11-20) the checkout was on `main`, so the fix has to be
+merged there before step 2, and the 33 folders are a subset of the 73 completed `data_*`
+folders. See `docs/production-data-layout.md`.
+
 ## Steps
 
 1. Take a `full` backup first (`docs/backup-restore.md`).
