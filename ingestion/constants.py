@@ -15,4 +15,8 @@ FOLDER_RE_OLD      = re.compile(r"^all_\d{8}$")       # early export: files dire
 TEMP_FILE_RE       = re.compile(r"^m7004_ID_([0-9A-Fa-f]+)\.txt$")
 TEMP_FILE_OLD_RE   = re.compile(r"^TemperatureLog\S*\.csv$")   # one CSV, one column per sensor
 IRRADIANCE_FILE_RE = re.compile(r"^PT-104_channel_(\d+)\.txt$")
+# Sun tracker: mbox_ID_<serial>.txt, written with blanks before the extension ("mbox_ID_S19057654       .txt")
+MBOX_FILE_RE       = re.compile(r"^mbox_ID_(\S+?)\s*\.txt$")
+# The M-Box writes its raw value in mV as a decimal, the PT-104 files in nV as an integer.
+MBOX_RAW_SCALE     = 1_000_000
 SPECTRAL_FILE_RE   = re.compile(r"^\d{10}\.CSV$", re.IGNORECASE)

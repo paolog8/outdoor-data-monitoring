@@ -63,7 +63,8 @@ run pick it up, or run immediately:
 docker compose run --rm ingestion python3 /app/ingest.py       # DRY_RUN=true to preview
 ```
 
-See `docs/ingestion-patterns.md` for file formats and how to add a new sensor type.
+See `docs/ingestion-patterns.md` for file formats and how to add a new sensor type, and
+`docs/sun-tracker-backfill.md` for refilling the sun tracker data from folders already ingested.
 
 ## Dashboard (Streamlit, port 8501)
 
@@ -131,6 +132,7 @@ If data age keeps growing while local ingestion succeeds, SymmetricDS is stalled
 ## Docs
 
 - `docs/ingestion-patterns.md` — ingestion pipeline patterns, file formats
+- `docs/production-data-layout.md` — folder layout and read-only mount on the outdoor PC
 - `docs/sensor-data-model.md` — sensor supertype/subtype design
 - `docs/solar-cell-data-model.md` — cell registry, grouping model, example queries
 - `docs/backup-restore.md` — backups, restore procedure, production-only database objects

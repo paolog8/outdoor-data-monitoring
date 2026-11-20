@@ -35,15 +35,33 @@ def _strip_trailing_empty_column(reader: list) -> list:
     return reader
 
 
+def data_start_index(reader: list) -> int:
+    """
+    Returns the row index of the first wavelength data row.
+
+    Older exports (e.g. 2018) carry a 'Wavelength(nm)' label row at index 7; the
+    2025+ exports omit it and start the data there. The row is recognised by its
+    first cell not being a number.
+    """
+    try:
+        float(reader[7][0])
+    except (ValueError, IndexError):
+        return 8
+    return 7
+
+
 def validate_spectral_structure(reader: list) -> None:
     """
     Checks that `reader` (rows from an EKO WISER 35 CSV) matches the fixed
     layout documented in `parse_spectral_file`. Raises SpectralFileStructureError
     with a description of the mismatch if it does not.
+
+    The optional 'Wavelength(nm)' label row is validated when it is present.
     """
-    if len(reader) < 9:
+    data_start = data_start_index(reader)
+    if len(reader) < data_start + 1:
         raise SpectralFileStructureError(
-            f"expected at least 9 header+data rows, got {len(reader)}"
+            f"expected at least {data_start + 1} header+data rows, got {len(reader)}"
         )
 
     for row_idx, expected_label in EXPECTED_ROW_LABELS.items():
@@ -54,23 +72,24 @@ def validate_spectral_structure(reader: list) -> None:
                 f"row {row_idx} label is '{actual}', expected something containing '{expected_label}'"
             )
 
-    header_row = reader[7]
-    first_label = header_row[0].strip() if header_row else ""
-    if first_label != "Wavelength(nm)":
-        raise SpectralFileStructureError(
-            f"row 7 col 0 is '{first_label}', expected 'Wavelength(nm)'"
-        )
-    if len(header_row) < 2 or any(
-        "irradiance" not in cell.lower() for cell in header_row[1:]
-    ):
-        raise SpectralFileStructureError(
-            "row 7 data columns are not all 'Irradiance(W/m2/um)'"
-        )
+    if data_start == 8:
+        header_row = reader[7]
+        first_label = header_row[0].strip() if header_row else ""
+        if first_label != "Wavelength(nm)":
+            raise SpectralFileStructureError(
+                f"row 7 col 0 is '{first_label}', expected 'Wavelength(nm)'"
+            )
+        if len(header_row) < 2 or any(
+            "irradiance" not in cell.lower() for cell in header_row[1:]
+        ):
+            raise SpectralFileStructureError(
+                "row 7 data columns are not all 'Irradiance(W/m2/um)'"
+            )
 
     n_cols = len(reader[3])
     if n_cols < 2:
         raise SpectralFileStructureError(f"row 3 (Sensor) has only {n_cols} column(s)")
-    for row_idx in range(8):
+    for row_idx in range(data_start):
         if len(reader[row_idx]) != n_cols:
             raise SpectralFileStructureError(
                 f"row {row_idx} has {len(reader[row_idx])} columns, expected {n_cols} (matching row 3)"
@@ -79,18 +98,20 @@ def validate_spectral_structure(reader: list) -> None:
 
 def parse_spectral_file(file_path: Path) -> dict:
     """
-    Parses an EKO WISER 35 wide-format CSV (8-row header, then wavelength data).
+    Parses an EKO WISER 35 wide-format CSV (7-row header, optional column-label
+    row, then wavelength data).
 
     CSV layout:
       Row 0: Date          — first data cell holds the date ('2026/02/01'); repeated at odd cols
       Row 1: Time          — time per column; only populated at odd columns, empty at even
-      Row 2: Memo          — instrument name ('EKO WISER 35')
-      Row 3: Sensor        — model name per column ('MS-711' or 'MS-712'), all 24 filled
+      Row 2: Memo          — instrument name ('EKO WISER', 'EKO WISER 35')
+      Row 3: Sensor        — model name per column ('MS-711', 'MS-712' or 'Merge'), all filled
       Row 4: Exposure Time — integer ms per column
       Row 5: Sensor Temp.  — float °C per column
       Row 6: Power(V)      — float V per column
-      Row 7: Column labels — 'Wavelength(nm)', 'Irradiance(W/m2/um)' x 24
-      Row 8+: Data         — wavelength in col 0; irradiance values in cols 1-24 (empty = inactive)
+      Row 7: Column labels — 'Wavelength(nm)', 'Irradiance(W/m2/um)' x N; only in older
+                             exports, the 2025+ exports start the data here
+      Row 7/8+: Data       — wavelength in col 0; irradiance values in cols 1-N (empty = inactive)
 
     Returns a dict keyed by sensor model:
         {
@@ -111,6 +132,7 @@ def parse_spectral_file(file_path: Path) -> dict:
     reader = _strip_trailing_empty_column(reader)
 
     validate_spectral_structure(reader)
+    data_start = data_start_index(reader)
 
     sensor_row = reader[3]
     exposure_row = reader[4]
@@ -174,7 +196,7 @@ def parse_spectral_file(file_path: Path) -> dict:
     # Build the full wavelength axis from col 0. Inactive wavelengths get NaN so every
     # measurement row stays aligned with wavelengths_nm regardless of sensor type.
     all_wavelengths = []
-    for data_row in reader[8:]:
+    for data_row in reader[data_start:]:
         if not data_row or not data_row[0].strip():
             continue
         try:
@@ -185,7 +207,7 @@ def parse_spectral_file(file_path: Path) -> dict:
     wl_index = {wl: idx for idx, wl in enumerate(all_wavelengths)}
     col_irr = [[float("nan")] * len(all_wavelengths) for _ in range(n_data_cols)]
 
-    for data_row in reader[8:]:
+    for data_row in reader[data_start:]:
         if not data_row or not data_row[0].strip():
             continue
         try:

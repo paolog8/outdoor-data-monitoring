@@ -18,7 +18,7 @@ x-proxy-build-args: &proxy-build-args
 services:
   postgres:
     container_name: outdoor-dev-postgres
-    restart: "no"
+    restart: unless-stopped
     env_file: !override [.env.dev]
     ports: !override
       - "127.0.0.1:5440:5432"
@@ -51,7 +51,7 @@ services:
         condition: service_completed_successfully
 
   dashboard:
-    restart: "no"
+    restart: unless-stopped
     env_file: !override [.env.dev]
     build:
       args: *proxy-build-args

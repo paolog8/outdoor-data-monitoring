@@ -209,7 +209,7 @@ ON CONFLICT (temperature_sensor_id, timestamp) DO NOTHING;
 
 ## Irradiance ingestion
 
-Irradiance files (`PT-104_channel_??.txt`) are tab-separated with columns:
+Irradiance files (`PT-104_channel_??.txt`, see below for the sun tracker) are tab-separated with columns:
 
 ```
 timestamp    raw_value[uV]    irradiance[W/m²]
@@ -218,6 +218,14 @@ timestamp    raw_value[uV]    irradiance[W/m²]
 Sensor identity comes from the channel number in the filename (stored as `serial_number =
 'channel_NN'`). Sensors are upserted into `irradiance_sensor` using `serial_number` as the
 unique key (constraint `uq_irradiance_sensor_serial_number`).
+
+The sun tracker (EKO M-Box) writes `mbox_ID_<serial>.txt`, with blanks before the extension
+(`mbox_ID_S19057654       .txt`). It has the same three columns, but the second one is a
+decimal in mV (`43.412`) instead of an integer in nV. The serial comes from the file name and
+is looked up in `irradiance_sensor` (an unknown serial is registered as `MBox_<serial>`); the
+raw value is multiplied by 1,000,000 and rounded, so `raw_value` has the same unit as for
+the PT-104 channels. The mV unit is inferred by comparing with a PT-104 channel measured at
+the same time, not from documentation. Any other file name in the folder is ignored.
 
 ```sql
 INSERT INTO irradiance_measurement (timestamp, irradiance_sensor_id, irradiance, raw_value)
@@ -230,6 +238,8 @@ ON CONFLICT (irradiance_sensor_id, timestamp) DO NOTHING;
 Spectral files are EKO WISER 35 CSVs placed in `data/spectral_data/<YEAR>/<YYYYMMDDH*.CSV>`.
 Each file contains one hour of measurements at 5-minute intervals for two sensor heads:
 MS-711 (short wavelengths, ~300–1117 nm) and MS-712 (long wavelengths, ~882–1800 nm).
+Older exports (e.g. 2018) add a third, instrument-merged column per timestamp named
+`Merge`.
 
 ### File format
 
@@ -239,12 +249,12 @@ The CSV has 8 header rows followed by wavelength data:
 Row 0: Date          — date value at odd columns (e.g. '2026/02/01'); even columns empty
 Row 1: Time          — timestamp at odd columns; even columns empty
 Row 2: Memo          — instrument name ('EKO WISER 35')
-Row 3: Sensor        — model name per column ('MS-711' or 'MS-712'), all 24 filled
+Row 3: Sensor        — model name per column ('MS-711', 'MS-712' or 'Merge'), all filled
 Row 4: Exposure Time — integer ms per column
 Row 5: Sensor Temp.  — float °C per column
 Row 6: Power(V)      — float V per column
-Row 7: Column labels
-Row 8+: Data         — col 0 = wavelength (nm); cols 1–24 = irradiance (W/m²/µm) or empty
+Row 7: Column labels — only in older exports ('Wavelength(nm)', 'Irradiance(W/m2/um)' x N)
+Row 7/8+: Data       — col 0 = wavelength (nm); the other columns = irradiance (W/m²/µm) or empty
 ```
 
 Columns 1–24 represent 12 timestamps × 2 sensors, interleaved: MS-711, MS-712, MS-711, MS-712, …
