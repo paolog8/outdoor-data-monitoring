@@ -11,7 +11,7 @@ import pytest
 
 import math
 
-from constants import FOLDER_RE, FOLDER_RE_OLD, TEMP_FILE_OLD_RE
+from constants import FOLDER_RE, FOLDER_RE_OLD, IRRADIANCE_FILE_RE, MBOX_FILE_RE, MBOX_RAW_SCALE, TEMP_FILE_OLD_RE
 from irradiance import parse_irradiance_file
 from mpp import parse_file as parse_mpp_file
 from spectral import SpectralFileStructureError, parse_spectral_file
@@ -101,6 +101,19 @@ def test_irradiance_row_is_converted_to_utc():
     rows = parse_irradiance_file(FIXTURES / "PT-104_channel_01.txt")
     assert rows[0] == (utc(2025, 11, 14, 15, 45, 59), -111687, -2.597)
     assert len(rows) == 3
+
+
+def test_mbox_file_name_with_blanks_before_extension_is_matched():
+    assert MBOX_FILE_RE.match("mbox_ID_S19057654       .txt").group(1) == "S19057654"
+    assert MBOX_FILE_RE.match("mbox_ID_S19057654.txt").group(1) == "S19057654"
+    assert not MBOX_FILE_RE.match("errorLog_M-box.txt")
+    assert not IRRADIANCE_FILE_RE.match("mbox_ID_S19057654       .txt")
+
+
+def test_mbox_raw_value_is_scaled_to_the_integer_unit_of_the_pt104_files():
+    rows = parse_irradiance_file(FIXTURES / "mbox_ID_S19057654       .txt", MBOX_RAW_SCALE)
+    assert rows[0] == (utc(2025, 11, 14, 15, 45, 59), 43412000, 878.794)
+    assert [r[1] for r in rows[1:]] == [1000, -1000]
 
 
 # --- old temperature CSV (all_YYYYMMDD folders) -------------------------------
